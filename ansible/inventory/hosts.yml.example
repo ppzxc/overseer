@@ -1,0 +1,33 @@
+---
+all:
+  children:
+    # 1. IDC 전체 서버 그룹
+    idc_servers:
+      children:
+        # 역할(Role) 기반 그룹
+        compute_nodes:
+          hosts:
+            node-01.idc.internal:
+              ansible_host: 192.168.10.11
+            node-02.idc.internal:
+              ansible_host: 192.168.10.12
+        storage_nodes:
+          hosts:
+            storage-01.idc.internal:
+              ansible_host: 192.168.10.21
+        gateway_nodes:
+          hosts:
+            gw-01.idc.internal:
+              ansible_host: 192.168.10.1
+
+        # OS 세대별 그룹 (동일 호스트가 다중 그룹 소속 가능)
+        legacy_el6_nodes:
+          hosts:
+            storage-01.idc.internal:
+        legacy_el7_nodes:
+          hosts:
+            node-02.idc.internal:
+        modern_rocky_nodes:
+          hosts:
+            node-01.idc.internal:
+            gw-01.idc.internal:

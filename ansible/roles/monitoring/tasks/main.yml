@@ -1,0 +1,147 @@
+---
+# 1. Prometheus Node Exporter Deployment
+- name: "[MON-001] Create node_exporter system group"
+  ansible.builtin.group:
+    name: "{{ node_exporter_group }}"
+    system: yes
+    state: present
+
+- name: "[MON-002] Create node_exporter system user"
+  ansible.builtin.user:
+    name: "{{ node_exporter_user }}"
+    group: "{{ node_exporter_group }}"
+    system: yes
+    shell: /sbin/nologin
+    create_home: no
+    state: present
+
+- name: "[MON-003] Download and install Node Exporter binary"
+  ansible.builtin.unarchive:
+    src: "https://github.com/prometheus/node_exporter/releases/download/v{{ node_exporter_version }}/node_exporter-{{ node_exporter_version }}.linux-{{ node_exporter_arch }}.tar.gz"
+    dest: /usr/local/bin
+    remote_src: yes
+    extra_opts:
+      - "--strip-components=1"
+      - "--wildcards"
+      - "*/node_exporter"
+    creates: /usr/local/bin/node_exporter
+    owner: root
+    group: root
+    mode: '0755'
+  notify: Restart node_exporter
+
+- name: "[MON-004] Create systemd service for node_exporter"
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/node_exporter.service
+    content: |
+      [Unit]
+      Description=Node Exporter
+      After=network.target
+
+      [Service]
+      User={{ node_exporter_user }}
+      Group={{ node_exporter_group }}
+      Type=simple
+      ExecStart=/usr/local/bin/node_exporter --web.listen-address=:{{ node_exporter_port }}
+      Restart=always
+      RestartSec=5
+
+      [Install]
+      WantedBy=multi-user.target
+    owner: root
+    group: root
+    mode: '0644'
+  when: ansible_service_mgr == "systemd"
+  notify: Restart node_exporter
+
+- name: "[MON-005] Ensure node_exporter service is started and enabled"
+  ansible.builtin.systemd:
+    name: node_exporter
+    state: started
+    enabled: true
+  when: ansible_service_mgr == "systemd"
+
+# 2. OpenTelemetry Collector Contrib Deployment (OpenObserve Ingestion Pipeline)
+- name: "[MON-006] Create otelcol system group"
+  ansible.builtin.group:
+    name: "{{ otelcol_group }}"
+    system: yes
+    state: present
+  when: enable_otelcol | default(true) | bool
+
+- name: "[MON-007] Create otelcol system user"
+  ansible.builtin.user:
+    name: "{{ otelcol_user }}"
+    group: "{{ otelcol_group }}"
+    groups: "{{ 'adm' if ansible_os_family == 'Debian' else 'systemd-journal' }}"
+    append: yes
+    system: yes
+    shell: /sbin/nologin
+    create_home: no
+    state: present
+  when: enable_otelcol | default(true) | bool
+
+- name: "[MON-008] Download and install OpenTelemetry Collector Contrib binary"
+  ansible.builtin.unarchive:
+    src: "https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v{{ otelcol_version }}/otelcol-contrib_{{ otelcol_version }}_linux_{{ otelcol_arch }}.tar.gz"
+    dest: /usr/local/bin
+    remote_src: yes
+    extra_opts:
+      - "--wildcards"
+      - "*/otelcol-contrib"
+    creates: /usr/local/bin/otelcol-contrib
+    owner: root
+    group: root
+    mode: '0755'
+  when:
+    - enable_otelcol | default(true) | bool
+    - ansible_distribution_major_version | int >= 7 or ansible_os_family == "Debian"
+  notify: Restart otelcol-contrib
+
+- name: "[MON-009] Deploy OpenTelemetry Collector Contrib configuration (OpenObserve OTLP pipeline)"
+  ansible.builtin.template:
+    src: otelcol-contrib.yaml.j2
+    dest: /etc/otelcol-contrib.yaml
+    owner: root
+    group: "{{ otelcol_group }}"
+    mode: '0640'
+  when:
+    - enable_otelcol | default(true) | bool
+    - ansible_distribution_major_version | int >= 7 or ansible_os_family == "Debian"
+  notify: Restart otelcol-contrib
+
+- name: "[MON-010] Create systemd service for otelcol-contrib"
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/otelcol-contrib.service
+    content: |
+      [Unit]
+      Description=OpenTelemetry Collector Contrib
+      After=network.target
+
+      [Service]
+      User={{ otelcol_user }}
+      Group={{ otelcol_group }}
+      Type=simple
+      ExecStart=/usr/local/bin/otelcol-contrib --config=/etc/otelcol-contrib.yaml
+      Restart=always
+      RestartSec=5
+      LimitNOFILE=65536
+
+      [Install]
+      WantedBy=multi-user.target
+    owner: root
+    group: root
+    mode: '0644'
+  when:
+    - enable_otelcol | default(true) | bool
+    - ansible_service_mgr == "systemd"
+  notify: Restart otelcol-contrib
+
+- name: "[MON-011] Ensure otelcol-contrib service is started and enabled"
+  ansible.builtin.systemd:
+    name: otelcol-contrib
+    state: started
+    enabled: true
+  when:
+    - enable_otelcol | default(true) | bool
+    - ansible_service_mgr == "systemd"

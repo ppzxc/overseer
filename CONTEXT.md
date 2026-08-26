@@ -1,0 +1,19 @@
+# Overseer Domain Context
+
+## 1. Overview
+**Overseer** is a central control plane (Docker Compose) and on-premise provisioning automation toolchain (Ansible) designed for secure, standardized management of small-to-medium IDC server infrastructure.
+
+## 2. Core Concepts & Vocabulary
+- **Control Plane**: Central services including HCP Vault (SSH CA & Secrets), HashiCorp Boundary (Zero-Trust IAM), PostgreSQL (Backend DB), OpenObserve (Central Logs/Metrics/Traces), and Prometheus.
+- **Node Automation (Ansible)**: Idempotent roles (`common`, `security`, `vault_ssh_ca`, `boundary_target`, `monitoring`) for bootstrapping and maintaining IDC machines.
+- **Zero-Trust Access**: Eliminating static root passwords/keys in favor of short-lived certificates signed by Vault SSH CA or Boundary proxied sessions.
+- **Multi-OS Support**: Full support across RHEL/CentOS generations (CentOS 6 legacy to CentOS 7/8 and Rocky Linux 9/10) as well as Debian/Ubuntu.
+- **Hybrid Observability Pipeline**: Node Exporter (low-level OS/HW metrics) + OpenTelemetry Collector Contrib (`otelcol-contrib` for log ingestion, OTLP aggregation, and forwarding to central OpenObserve).
+- **Layered Security Hardening**: Permissive SELinux with audit logging, Auditd critical watchers, Fail2ban SSH jail, subnet-restricted firewalls, and custom SSH ports.
+
+## 3. System Boundaries
+- `docker-compose.yml`: Top-level orchestration for all control plane containers.
+- `ansible/`: Self-contained Ansible configuration, inventory, playbooks, roles, and Molecule test scenarios.
+- `docs/`: Unified documentation repository containing operational guidelines and ADRs (`docs/adr/`).
+- `vault/` & `boundary/`: Service-specific configuration files and bootstrap/init scripts.
+

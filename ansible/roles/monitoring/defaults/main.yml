@@ -1,0 +1,20 @@
+---
+# Prometheus Node Exporter
+node_exporter_version: "1.8.2"
+node_exporter_arch: "{{ 'amd64' if ansible_architecture == 'x86_64' else 'arm64' }}"
+node_exporter_port: 9100
+node_exporter_user: "node_exporter"
+node_exporter_group: "node_exporter"
+
+# OpenTelemetry Collector Contrib
+enable_otelcol: true
+otelcol_version: "0.108.0"
+otelcol_arch: "{{ 'amd64' if ansible_architecture == 'x86_64' else 'arm64' }}"
+otelcol_user: "otelcol-contrib"
+otelcol_group: "otelcol-contrib"
+
+# OpenObserve 중앙 관제 엔드포인트 연동
+openobserve_otlp_endpoint: "http://127.0.0.1:5080/api/default"
+openobserve_auth_header: ""
+openobserve_stream_metrics: "default"
+openobserve_stream_logs: "default"

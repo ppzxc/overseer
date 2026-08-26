@@ -1,0 +1,6 @@
+---
+enable_vault_ssh_ca: false
+vault_ssh_ca_path: "/etc/ssh/trusted-user-ca-keys.pem"
+vault_ssh_ca_principals_dir: "/etc/ssh/auth_principals"
+vault_ssh_ca_public_key: ""
+

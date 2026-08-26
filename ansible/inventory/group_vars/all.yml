@@ -1,0 +1,55 @@
+---
+# 전역 공통 변수
+timezone: "Asia/Seoul"
+locale: "en_US.UTF-8"
+
+# 관리자 계정 및 SSH 키 설정
+admin_user: "infra-admin"
+admin_groups:
+  - sudo
+  - wheel
+
+# 관리자 SSH 공개키 목록 (Vault 미사용 시 또는 비상용 접근 키)
+# 호스트의 ~/.ssh/id_rsa.pub 또는 id_ed25519.pub 내용을 등록하세요.
+admin_ssh_public_keys: []
+#  - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI... user@workstation"
+
+# 기능 활성화 플래그 (Vault / Boundary / Observability)
+enable_vault_ssh_ca: false
+enable_boundary: false
+enable_otelcol: true
+
+# OpenBao / HCP Vault SSH CA 공개키 (Vault 서명 기반 SSH 접근 허용 시 사용)
+vault_ssh_ca_public_key: ""
+
+# Boundary Worker / Target 설정
+boundary_worker_tags:
+  - "idc=main"
+  - "env=production"
+boundary_authorized_users:
+  - "infra-admin"
+  - "ansible"
+
+# SSH 및 보안 포트 / 서브넷
+ssh_port: 22
+firewall_allowed_tcp_ports:
+  - 22    # SSH
+  - 9100  # Node Exporter
+  - 4317  # OTLP gRPC
+  - 4318  # OTLP HTTP
+
+admin_allowed_subnets:
+  - "10.0.0.0/8"
+  - "172.16.0.0/12"
+  - "192.168.0.0/16"
+  - "127.0.0.1/32"
+
+monitoring_allowed_subnets:
+  - "10.0.0.0/8"
+  - "172.16.0.0/12"
+  - "192.168.0.0/16"
+  - "127.0.0.1/32"
+
+# OpenObserve 중앙 관제 연동
+openobserve_otlp_endpoint: "http://127.0.0.1:5080/api/default"
+openobserve_auth_header: ""

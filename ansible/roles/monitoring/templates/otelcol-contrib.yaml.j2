@@ -1,0 +1,91 @@
+# OpenTelemetry Collector Contrib Configuration for Overseer Managed IDC Node
+# Ingests Node Exporter metrics, system logs, and forwards to Central OpenObserve
+
+receivers:
+  # 1. Prometheus Scrape receiver for local Node Exporter
+  prometheus:
+    config:
+      scrape_configs:
+        - job_name: 'node-exporter-local'
+          scrape_interval: 15s
+          static_configs:
+            - targets: ['127.0.0.1:{{ node_exporter_port }}']
+
+  # 2. Hostmetrics receiver for kernel & hardware stats
+  hostmetrics:
+    collection_interval: 30s
+    scrapers:
+      cpu:
+      memory:
+      disk:
+      filesystem:
+      load:
+      network:
+
+  # 3. Filelog receiver for critical system and audit logs
+  filelog/system:
+    include:
+      - /var/log/messages
+      - /var/log/syslog
+      - /var/log/secure
+      - /var/log/auth.log
+      - /var/log/sudo.log
+      - /var/log/audit/audit.log
+    start_at: end
+    retry_on_failure:
+      enabled: true
+
+  # 4. Standard OTLP ingestion for application containers/services
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 75
+    spike_limit_percentage: 20
+
+  batch:
+    send_batch_size: 1024
+    timeout: 1s
+
+  resourcedetection:
+    detectors: [env, system]
+    timeout: 2s
+    system:
+      hostname_sources: [os]
+
+exporters:
+  otlp/openobserve:
+    endpoint: "{{ openobserve_otlp_endpoint }}"
+    tls:
+      insecure: true
+{% if openobserve_auth_header is defined and openobserve_auth_header | length > 0 %}
+    headers:
+      Authorization: "{{ openobserve_auth_header }}"
+{% endif %}
+
+service:
+  pipelines:
+    metrics:
+      receivers: [prometheus, hostmetrics, otlp]
+      processors: [memory_limiter, batch, resourcedetection]
+      exporters: [otlp/openobserve]
+
+    logs:
+      receivers: [filelog/system, otlp]
+      processors: [memory_limiter, batch, resourcedetection]
+      exporters: [otlp/openobserve]
+
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch, resourcedetection]
+      exporters: [otlp/openobserve]
+
+  telemetry:
+    logs:
+      level: info

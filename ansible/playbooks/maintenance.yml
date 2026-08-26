@@ -1,0 +1,42 @@
+---
+# ==============================================================================
+# 정기 유지보수 및 보안 패치 플레이북
+# ==============================================================================
+
+- name: IDC Server Maintenance & Security Patching
+  hosts: idc_servers
+  become: true
+  serial: "20%"  # 롤링 업데이트 방식으로 서비스 중단 최소화
+
+  tasks:
+    - name: Update apt packages cache and upgrade (Debian/Ubuntu)
+      ansible.builtin.apt:
+        update_cache: yes
+        upgrade: dist
+        autoremove: yes
+        autoclean: yes
+      when: ansible_os_family == "Debian"
+
+    - name: Update dnf packages (RedHat/Rocky)
+      ansible.builtin.dnf:
+        name: "*"
+        state: latest
+        update_cache: yes
+      when: ansible_os_family == "RedHat"
+
+    - name: Check if system reboot is required (Debian)
+      ansible.builtin.stat:
+        path: /var/run/reboot-required
+      register: reboot_required_file
+      when: ansible_os_family == "Debian"
+
+    - name: Check if system reboot is required (RedHat)
+      ansible.builtin.command: needs-restarting -r
+      register: needs_restarting_result
+      failed_when: false
+      changed_when: false
+      when: ansible_os_family == "RedHat"
+
+    - name: Output reboot status
+      ansible.builtin.debug:
+        msg: "Host {{ inventory_hostname }} requires reboot: {{ (reboot_required_file.stat.exists | default(false)) or (needs_restarting_result.rc | default(0) == 1) }}"
