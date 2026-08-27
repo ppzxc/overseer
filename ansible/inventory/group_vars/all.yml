@@ -29,9 +29,9 @@ boundary_authorized_users:
   - "ansible"
 
 # SSH 및 보안 포트 / 서브넷
-ssh_port: 22
+ssh_port: "{{ ansible_port | default(22) }}"
 firewall_allowed_tcp_ports:
-  - 22    # SSH
+  - "{{ ansible_port | default(22) }}"
 
 admin_allowed_subnets:
   - "10.0.0.0/8"

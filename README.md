@@ -29,9 +29,10 @@
 │  │        docker_engine (Docker CE / Hardening)                          │  │
 │  │        overseer_control_plane (Memlock / Sysctl / Systemd unit)       │  │
 │  │        openbao_ssh_ca (Trusted CA) | boundary_target | monitoring     │  │
-│  │        (Node Exporter + Docker Metrics + OpenTelemetry Collector)     │  │
+│  │        (OTel Hostmetrics + Docker Metrics + OS Audit Logs Pipeline)   │  │
 │  └───────────────────────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────────────────┘
+
 ```
 
 ---

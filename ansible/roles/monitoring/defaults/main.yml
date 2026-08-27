@@ -1,11 +1,4 @@
 ---
-# Prometheus Node Exporter
-node_exporter_version: "1.8.2"
-node_exporter_arch: "{{ 'amd64' if ansible_architecture == 'x86_64' else 'arm64' }}"
-node_exporter_port: 9100
-node_exporter_user: "node_exporter"
-node_exporter_group: "node_exporter"
-
 # OpenTelemetry Collector Contrib
 enable_otelcol: true
 otelcol_version: "0.108.0"
@@ -13,7 +6,19 @@ otelcol_arch: "{{ 'amd64' if ansible_architecture == 'x86_64' else 'arm64' }}"
 otelcol_user: "otelcol-contrib"
 otelcol_group: "otelcol-contrib"
 
-# Docker Metrics Scrape Toggle
+# OpenTelemetry Hostmetrics Receiver Configuration
+otel_hostmetrics_interval: "15s"
+otel_hostmetrics_scrapers:
+  cpu: {}
+  memory: {}
+  disk: {}
+  filesystem: {}
+  load: {}
+  network: {}
+  paging: {}
+  processes: {}
+
+# Docker Metrics Scrape Toggle (Scrapes dockerd metrics endpoint directly via OTel prometheus receiver)
 docker_metrics_enabled: false
 docker_metrics_address: "127.0.0.1:9323"
 
@@ -37,4 +42,7 @@ otel_system_logs:
   - /var/log/yum.log
   - /var/log/dpkg.log
   - /var/log/firewalld
+
+# Legacy node_exporter Cleanup Toggle
+cleanup_legacy_node_exporter: true
 

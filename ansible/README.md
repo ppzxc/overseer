@@ -32,8 +32,10 @@
 6. **`boundary_target`**:
    - HashiCorp Boundary Zero-Trust 타겟 노드 메타데이터 등록 (`BND-001 ~ BND-003`)
 7. **`monitoring`**:
-   - Prometheus Node Exporter(`127.0.0.1:9100`) + Docker Engine 메트릭(`127.0.0.1:9323`) 로컬 스크랩
-   - OpenTelemetry Collector Contrib(`otelcol-contrib`) 바이너리/서비스 배포 및 원격 OTEL 백엔드로 OTLP 아웃바운드 푸시 (`MON-001 ~ MON-011`)
+   - OpenTelemetry Collector Contrib(`otelcol-contrib`) 바이너리/서비스 배포 및 원격 OTEL 백엔드로 OTLP 아웃바운드 푸시 (`MON-001 ~ MON-006`)
+   - `hostmetrics` receiver를 통한 호스트 CPU, Memory, Disk, Network 등 저수준 시스템 메트릭 직접 수집
+   - 레거시 `node_exporter` 데몬/바이너리/유저 자동 정리 (`MON-CLEANUP-001 ~ MON-CLEANUP-005`)
+
 
 ---
 

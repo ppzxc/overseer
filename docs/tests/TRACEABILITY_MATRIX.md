@@ -1,6 +1,6 @@
 # Overseer 3-Way Traceability Matrix (자동 생성)
 
-> **최종 검증 일시**: `2026-08-27 16:47:51`  
+> **최종 검증 일시**: `2026-08-27 17:24:25`  
 > **검증 상태**: `✅ 100% PASS`  
 > **스펙 총계**: `80` 개 (Control Plane: 9, Ansible: 71)
 
@@ -64,17 +64,17 @@
 | `DOC-011` | Ansible Node | Deploy hardened Docker daemon configuration | ✅ OK | ✅ `ansible/docker_engine` | ✅ `Molecule Direct Verify` |
 | `DOC-012` | Ansible Node | Ensure Docker and containerd services are started and enabled | ✅ OK | ✅ `ansible/docker_engine` | ⚡ `Integrated in Pipeline` |
 | `DOC-013` | Ansible Node | Add admin user to docker group | ✅ OK | ✅ `ansible/docker_engine` | ⚡ `Integrated in Pipeline` |
-| `MON-001` | Ansible Node | Create node_exporter system group | ✅ OK | ✅ `ansible/monitoring` | ✅ `Molecule Direct Verify` |
-| `MON-002` | Ansible Node | Create node_exporter system user | ✅ OK | ✅ `ansible/monitoring` | ✅ `Molecule Direct Verify` |
-| `MON-003` | Ansible Node | Download and install Node Exporter binary | ✅ OK | ✅ `ansible/monitoring` | ✅ `Molecule Direct Verify` |
-| `MON-004` | Ansible Node | Create systemd service for node_exporter | ✅ OK | ✅ `ansible/monitoring` | ✅ `Molecule Direct Verify` |
-| `MON-005` | Ansible Node | Ensure node_exporter service is started and enabled | ✅ OK | ✅ `ansible/monitoring` | ✅ `Molecule Direct Verify` |
-| `MON-006` | Ansible Node | Create otelcol system group | ✅ OK | ✅ `ansible/monitoring` | ✅ `Molecule Direct Verify` |
-| `MON-007` | Ansible Node | Create otelcol system user | ✅ OK | ✅ `ansible/monitoring` | ✅ `Molecule Direct Verify` |
-| `MON-008` | Ansible Node | Download and install OpenTelemetry Collector Contrib binary | ✅ OK | ✅ `ansible/monitoring` | ✅ `Molecule Direct Verify` |
-| `MON-009` | Ansible Node | Deploy OpenTelemetry Collector Contrib configuration (OpenObserve OTLP pipeline) | ✅ OK | ✅ `ansible/monitoring` | ✅ `Molecule Direct Verify` |
-| `MON-010` | Ansible Node | Create systemd service for otelcol-contrib | ✅ OK | ✅ `ansible/monitoring` | ✅ `Molecule Direct Verify` |
-| `MON-011` | Ansible Node | Ensure otelcol-contrib service is started and enabled | ✅ OK | ✅ `ansible/monitoring` | ✅ `Molecule Direct Verify` |
+| `MON-001` | Ansible Node | Create otelcol system group | ✅ OK | ✅ `ansible/monitoring` | ✅ `Molecule Direct Verify` |
+| `MON-002` | Ansible Node | Create otelcol system user | ✅ OK | ✅ `ansible/monitoring` | ✅ `Molecule Direct Verify` |
+| `MON-003` | Ansible Node | Download and install OpenTelemetry Collector Contrib binary | ✅ OK | ✅ `ansible/monitoring` | ✅ `Molecule Direct Verify` |
+| `MON-004` | Ansible Node | Deploy OpenTelemetry Collector Contrib configuration (Hostmetrics & Log Pipeline) | ✅ OK | ✅ `ansible/monitoring` | ✅ `Molecule Direct Verify` |
+| `MON-005` | Ansible Node | Create systemd service for otelcol-contrib | ✅ OK | ✅ `ansible/monitoring` | ✅ `Molecule Direct Verify` |
+| `MON-006` | Ansible Node | Ensure otelcol-contrib service is started and enabled | ✅ OK | ✅ `ansible/monitoring` | ✅ `Molecule Direct Verify` |
+| `MON-CLEANUP-001` | Ansible Node | Stop and disable legacy node_exporter service | ✅ OK | ✅ `ansible/monitoring` | ✅ `Molecule Direct Verify` |
+| `MON-CLEANUP-002` | Ansible Node | Remove legacy node_exporter systemd unit file | ✅ OK | ✅ `ansible/monitoring` | ✅ `Molecule Direct Verify` |
+| `MON-CLEANUP-003` | Ansible Node | Remove legacy node_exporter binary | ✅ OK | ✅ `ansible/monitoring` | ⚡ `Integrated in Pipeline` |
+| `MON-CLEANUP-004` | Ansible Node | Remove legacy node_exporter user | ✅ OK | ✅ `ansible/monitoring` | ⚡ `Integrated in Pipeline` |
+| `MON-CLEANUP-005` | Ansible Node | Remove legacy node_exporter group | ✅ OK | ✅ `ansible/monitoring` | ⚡ `Integrated in Pipeline` |
 | `SEC-001` | Ansible Node | Configure SSH Hardening parameters | ✅ OK | ✅ `ansible/security` | ✅ `Molecule Direct Verify` |
 | `SEC-002` | Ansible Node | Ensure UFW is installed (Debian) | ✅ OK | ✅ `ansible/security` | ⚡ `Integrated in Pipeline` |
 | `SEC-003` | Ansible Node | Allow incoming TCP ports via UFW (Debian) | ✅ OK | ✅ `ansible/security` | ⚡ `Integrated in Pipeline` |

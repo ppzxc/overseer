@@ -1,5 +1,5 @@
 ---
-ssh_port: 22
+ssh_port: "{{ ansible_port | default(22) }}"
 ssh_permit_root_login: "prohibit-password"
 ssh_password_authentication: "yes"
 ssh_pubkey_authentication: "yes"

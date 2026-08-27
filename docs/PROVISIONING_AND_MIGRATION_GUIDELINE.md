@@ -63,22 +63,24 @@
 
 ---
 
-### 3) Monitoring (Node Exporter & OpenTelemetry Collector Contrib)
+### 3) Monitoring (OpenTelemetry Collector Contrib with Hostmetrics)
 
 #### [핵심 목표]
-- `node_exporter` 바이너리 설치 및 `127.0.0.1:9100` 로컬 루프백 서비스 등록
-- `otelcol-contrib`를 통한 로컬 메트릭/로그 수집 및 중앙 OpenObserve로 OTLP 아웃바운드 푸시 (호스트 인바운드 포트 불필요)
+- `otelcol-contrib`의 `hostmetrics` receiver를 통한 호스트 OS/커널 메트릭(CPU, Memory, Disk, Net 등) 직접 수집
+- `filelog` receiver를 통한 시스템 보안/감사 로그 수집 및 중앙 OpenObserve로 OTLP 아웃바운드 푸시 (호스트 인바운드 포트 불필요)
+- 기존 노드에 잔존하는 레거시 `node_exporter` 자동 정리(Stop/Disable/Remove)
 
 #### [신규 프로비저닝 가이드]
-- 표준 버전 바이너리를 다운로드하여 시스템 유저(`node_exporter`, `otelcol`) 권한으로 실행합니다.
+- 표준 버전 바이너리를 다운로드하여 시스템 유저(`otelcol-contrib`) 권한으로 단일 데몬을 실행합니다.
 
 #### [기존 머신 마이그레이션 주의사항 & 체크리스트]
-- [ ] **로컬 9100 점유 여부 확인**:
-  - 기존에 구버전 `node_exporter` 또는 타사 에이전트가 9100 포트를 로컬에서 점유 중인지 확인 (`ss -tulpn | grep :9100`)
+- [ ] **레거시 Node Exporter 정리**:
+  - `cleanup_legacy_node_exporter: true`(기본값)를 통해 기존 9100 포트 점유 프로세스 및 잔재를 안전하게 정리합니다.
 - [ ] **기존 모니터링 에이전트 마이그레이션**:
   - 이전 수집 에이전트(Zabbix, Telegraf, Datadog 등)가 병행 실행되어야 하는지, 아니면 완전 대체 대상인지 사전에 협의 후 프로세스 정리
 - [ ] **OTLP 아웃바운드 통신 확인**:
   - 타겟 노드에서 중앙 OpenObserve 엔드포인트로의 아웃바운드(Outbound) HTTP/gRPC 통신이 허용되어 있는지 확인 (인바운드 포트 오픈 불필요)
+
 
 ---
 

@@ -17,8 +17,7 @@
 | **Docker Compose** | 중앙 컨트롤 플레인(OpenBao, Boundary, Postgres, Prometheus) 일괄 오케스트레이션 |
 | **OpenBao** | 중앙 집중형 시크릿 관리, SSH Certificate Authority(CA) 서명, 임시 자격증명 발급 (Linux Foundation Open-Source Vault Fork) |
 | **HashiCorp Boundary** | 사내망 노출 없는 안전한 인프라 접근 제어(IAM), 세션 관리 및 감사 로그 |
-| **Ansible** | 온프레미스 노드 설정 자동화, 멱등성 기반 형상 관리 및 프로비저닝 |
-| **Prometheus** | 온프레미스 노드(`node_exporter`) 및 컨트롤 플레인 메트릭 수집 |
+| **Prometheus** | 컨트롤 플레인 및 인프라 메트릭 수집 |
 
 ---
 

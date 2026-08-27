@@ -84,3 +84,23 @@ def test_monitoring_otel_system_logs(root_dir):
     for expected in expected_logs:
         assert expected in logs, f"Expected log path {expected} missing from otel_system_logs"
 
+def test_monitoring_node_exporter_removed_and_hostmetrics_enabled(root_dir):
+    """Node Exporter 변수 및 설정 제거와 OTel hostmetrics receiver 활성화 상태 검증"""
+    defaults_file = root_dir / "ansible" / "roles" / "monitoring" / "defaults" / "main.yml"
+    with open(defaults_file, 'r', encoding='utf-8') as f:
+        defaults = yaml.safe_load(f)
+
+    assert "node_exporter_version" not in defaults, "node_exporter_version should be completely removed"
+    assert "node_exporter_port" not in defaults, "node_exporter_port should be completely removed"
+    assert "otel_hostmetrics_interval" in defaults, "otel_hostmetrics_interval should be defined"
+    assert "otel_hostmetrics_scrapers" in defaults, "otel_hostmetrics_scrapers should be defined"
+    assert "cleanup_legacy_node_exporter" in defaults, "cleanup_legacy_node_exporter should be present"
+
+    # 템플릿 검증
+    template_file = root_dir / "ansible" / "roles" / "monitoring" / "templates" / "otelcol-contrib.yaml.j2"
+    assert template_file.exists(), "otelcol-contrib template file is missing"
+    template_content = template_file.read_text(encoding='utf-8')
+    assert "node_exporter" not in template_content, "Template should not contain node_exporter references"
+    assert "hostmetrics:" in template_content, "Template must configure hostmetrics receiver"
+
+

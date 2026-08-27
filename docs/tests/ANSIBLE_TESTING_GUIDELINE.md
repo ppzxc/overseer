@@ -117,7 +117,7 @@ Molecule 테스트 중 `Idempotence` 단계가 실패하는 주된 원인과 해
    - **올바른 작성 예**:
      ```yaml
      - name: Check version
-       ansible.builtin.command: /usr/local/bin/node_exporter --version
+       ansible.builtin.command: /usr/local/bin/otelcol-contrib --version
        register: result
        changed_when: false
      ```
@@ -136,7 +136,8 @@ Molecule 테스트 중 `Idempotence` 단계가 실패하는 주된 원인과 해
    ```
 2. **2단계 (실서버 접속 및 동작 검증)**:
    - 신규 관리자 계정 로그인 테스트: `ssh infra-admin@<IP>`
-   - 메트릭 엔드포인트 응답 확인: `curl http://<IP>:9100/metrics`
+   - OTel 에이전트 서비스 상태 점검: `systemctl status otelcol-contrib`
    - 타임 동기화 상태 점검: `chronyc sources -v`
+
 3. **3단계 (전체 그룹 롤링 배포)**:
    - 카나리 노드 검증 완료 후 전체 그룹으로 확장 (`--limit compute_nodes` 등)

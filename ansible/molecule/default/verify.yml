@@ -181,82 +181,68 @@
         msg: "Boundary toggle verified safe."
 
     # ==========================================================================
-    # 5. Monitoring Role (Node Exporter & OpenTelemetry) 검증
+    # 5. Monitoring Role (OpenTelemetry Hostmetrics & Log Pipeline) 검증
     # ==========================================================================
-    - name: "[VERIFY-MON-001] Verify node_exporter system group exists"
-      ansible.builtin.getent:
-        database: group
-        key: node_exporter
-
-    - name: "[VERIFY-MON-002] Verify node_exporter system user exists"
-      ansible.builtin.getent:
-        database: passwd
-        key: node_exporter
-
-    - name: "[VERIFY-MON-003] Verify node_exporter binary exists and is executable"
+    - name: "[VERIFY-MON-CLEANUP-001] Verify legacy node_exporter binary is absent"
       ansible.builtin.stat:
         path: /usr/local/bin/node_exporter
       register: node_exporter_stat
 
-    - name: Assert node_exporter binary properties
+    - name: Assert legacy node_exporter binary does not exist
       ansible.builtin.assert:
         that:
-          - node_exporter_stat.stat.exists
-          - node_exporter_stat.stat.executable
-          - node_exporter_stat.stat.mode == '0755'
-        fail_msg: "node_exporter binary is missing or not executable."
+          - not node_exporter_stat.stat.exists
+        fail_msg: "node_exporter binary should have been removed."
 
-    - name: Test node_exporter binary execution
-      ansible.builtin.command: /usr/local/bin/node_exporter --version
-      register: node_exporter_version_output
-      changed_when: false
-
-    - name: Assert node_exporter version output
-      ansible.builtin.assert:
-        that:
-          - "'node_exporter' in node_exporter_version_output.stdout or 'node_exporter' in node_exporter_version_output.stderr"
-        fail_msg: "node_exporter binary execution failed."
-
-    - name: "[VERIFY-MON-004] Verify node_exporter systemd service unit file"
+    - name: "[VERIFY-MON-CLEANUP-002] Verify legacy node_exporter systemd unit is absent"
       ansible.builtin.stat:
         path: /etc/systemd/system/node_exporter.service
       register: systemd_unit_stat
 
-    - name: Assert node_exporter systemd unit file exists
+    - name: Assert legacy node_exporter systemd unit file does not exist
       ansible.builtin.assert:
         that:
-          - systemd_unit_stat.stat.exists
-        fail_msg: "node_exporter systemd service unit file is missing."
+          - not systemd_unit_stat.stat.exists
+        fail_msg: "node_exporter systemd service unit file should have been removed."
 
-    - name: "[VERIFY-MON-005] Verify node_exporter service is enabled and listening"
-      ansible.builtin.debug:
-        msg: "node_exporter verification complete."
-
-    - name: "[VERIFY-MON-006] Verify otelcol system group exists"
+    - name: "[VERIFY-MON-001] Verify otelcol system group exists"
       ansible.builtin.getent:
         database: group
         key: otelcol-contrib
 
-    - name: "[VERIFY-MON-007] Verify otelcol system user exists"
+    - name: "[VERIFY-MON-002] Verify otelcol system user exists"
       ansible.builtin.getent:
         database: passwd
         key: otelcol-contrib
 
-    - name: "[VERIFY-MON-008] Verify otelcol-contrib binary exists and is executable"
+    - name: "[VERIFY-MON-003] Verify otelcol-contrib binary exists and is executable"
       ansible.builtin.stat:
         path: /usr/local/bin/otelcol-contrib
       register: otelcol_stat
 
-    - name: "[VERIFY-MON-009] Verify otelcol-contrib configuration file exists"
+    - name: "[VERIFY-MON-004] Verify otelcol-contrib configuration file exists"
       ansible.builtin.stat:
         path: /etc/otelcol-contrib.yaml
       register: otelcol_config_stat
 
-    - name: "[VERIFY-MON-010] Verify otelcol-contrib systemd service unit file"
+    - name: Assert otelcol-contrib configuration file contains hostmetrics receiver
+      ansible.builtin.slurp:
+        src: /etc/otelcol-contrib.yaml
+      register: otelcol_config_content
+
+    - name: Verify hostmetrics in config
+      ansible.builtin.assert:
+        that:
+          - "'hostmetrics:' in (otelcol_config_content.content | b64decode)"
+          - "'node_exporter' not in (otelcol_config_content.content | b64decode)"
+        fail_msg: "otelcol-contrib configuration must contain hostmetrics receiver and not contain node_exporter."
+
+    - name: "[VERIFY-MON-005] Verify otelcol-contrib systemd service unit file"
       ansible.builtin.stat:
         path: /etc/systemd/system/otelcol-contrib.service
       register: otelcol_unit_stat
 
-    - name: "[VERIFY-MON-011] Verify otelcol-contrib service status"
+    - name: "[VERIFY-MON-006] Verify otelcol-contrib service status"
       ansible.builtin.debug:
-        msg: "otelcol-contrib verification complete."
+        msg: "otelcol-contrib hostmetrics verification complete."
+
