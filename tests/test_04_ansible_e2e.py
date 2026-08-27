@@ -10,7 +10,9 @@ from pathlib import Path
 def test_ansible_inventory_and_vars(root_dir):
     """Ansible 인벤토리 및 group_vars 파일 유효성 검증 (overseer / servers 그룹 격리)"""
     inv_file = root_dir / "ansible" / "inventory" / "hosts.yml"
-    assert inv_file.exists(), "Inventory file hosts.yml is missing"
+    if not inv_file.exists():
+        inv_file = root_dir / "ansible" / "inventory" / "hosts.yml.example"
+    assert inv_file.exists(), "Inventory file hosts.yml or hosts.yml.example is missing"
     
     with open(inv_file, 'r', encoding='utf-8') as f:
         inv_data = yaml.safe_load(f)

@@ -1,8 +1,8 @@
 # Overseer 3-Way Traceability Matrix (자동 생성)
 
-> **최종 검증 일시**: `2026-08-27 17:24:25`  
+> **최종 검증 일시**: `2026-08-27 23:00:23`  
 > **검증 상태**: `✅ 100% PASS`  
-> **스펙 총계**: `80` 개 (Control Plane: 9, Ansible: 71)
+> **스펙 총계**: `82` 개 (Control Plane: 9, Ansible: 73)
 
 ---
 
@@ -37,8 +37,8 @@
 | `COMMON-009` | Ansible Node | Ensure Chrony service is running (Modern OS) | ✅ OK | ✅ `ansible/common` | ⚡ `Integrated in Pipeline` |
 | `COMMON-010` | Ansible Node | Ensure NTP service is running (CentOS 6 legacy) | ✅ OK | ✅ `ansible/common` | ⚡ `Integrated in Pipeline` |
 | `COMMON-011` | Ansible Node | Apply sysctl kernel tuning | ✅ OK | ✅ `ansible/common` | ✅ `Molecule Direct Verify` |
-| `COMMON-011-IPV6` | Ansible Node | Disable IPv6 via sysctl | ✅ OK | ✅ `ansible/common` | ⚡ `Integrated in Pipeline` |
 | `COMMON-011-EXTRA` | Ansible Node | Apply extra sysctl kernel tuning | ✅ OK | ✅ `ansible/common` | ⚡ `Integrated in Pipeline` |
+| `COMMON-011-IPV6` | Ansible Node | Disable IPv6 via sysctl | ✅ OK | ✅ `ansible/common` | ⚡ `Integrated in Pipeline` |
 | `COMMON-012` | Ansible Node | Ensure admin user group exists | ✅ OK | ✅ `ansible/common` | ✅ `Molecule Direct Verify` |
 | `COMMON-013` | Ansible Node | Ensure admin user exists with sudo privileges | ✅ OK | ✅ `ansible/common` | ✅ `Molecule Direct Verify` |
 | `COMMON-014` | Ansible Node | Enable passwordless sudo for admin user | ✅ OK | ✅ `ansible/common` | ✅ `Molecule Direct Verify` |

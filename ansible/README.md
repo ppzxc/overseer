@@ -42,6 +42,13 @@
 
 ## 3. 플레이북 실행 가이드
 
+### 0. 인벤토리 준비 (Git 격리 및 템플릿 복사)
+```bash
+# 템플릿 파일로부터 실제 hosts.yml 생성 (hosts.yml은 .gitignore 처리됨)
+cp inventory/hosts.yml.example inventory/hosts.yml
+```
+
+### 1. 플레이북 실행
 ```bash
 # 1. Overseer 컨트롤 플레인 전용 호스트 프로비저닝 (Docker CE + Podman 제거 + 하드닝)
 ./docker-run.sh playbooks/provision_overseer.yml

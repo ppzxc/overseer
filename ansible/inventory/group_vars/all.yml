@@ -10,7 +10,10 @@ admin_groups:
   - wheel
 
 # 관리자 SSH 공개키 목록 (비상용 또는 초기 부트스트랩 접근 키)
-admin_ssh_public_keys: []
+# 로컬 워크스테이션의 ~/.ssh/id_ed25519.pub 또는 id_rsa.pub 파일이 존재할 경우 자동 주입
+admin_ssh_public_keys:
+  - "{{ lookup('file', lookup('env', 'HOME') + '/.ssh/id_ed25519.pub', errors='ignore') | default(lookup('file', lookup('env', 'HOME') + '/.ssh/id_rsa.pub', errors='ignore'), true) | default('', true) }}"
+
 
 # 기능 활성화 플래그
 enable_openbao_ssh_ca: false

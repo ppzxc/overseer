@@ -129,10 +129,10 @@
     user: "{{ admin_user }}"
     key: "{{ item }}"
     state: present
-  loop: "{{ admin_ssh_public_keys | default([]) }}"
+  loop: "{{ admin_ssh_public_keys | default([]) | map('trim') | reject('equalto', '') | list }}"
   when:
     - admin_ssh_public_keys is defined
-    - admin_ssh_public_keys | length > 0
+    - (admin_ssh_public_keys | default([]) | map('trim') | reject('equalto', '') | list | length) > 0
 
 - name: "[COMMON-016] Configure system security limits (nofile/nproc)"
   community.general.pam_limits:

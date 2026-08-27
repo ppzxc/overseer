@@ -48,6 +48,16 @@
 
 ## 3. 빠른 시작 (Quick Start)
 
+### 0) 로컬 환경 설정 및 인벤토리 준비 (Git 분리 및 격리)
+실서버 IP, SSH 포트, 시크릿 정보는 Git에 커밋되지 않고 `.gitignore`로 격리됩니다.
+```bash
+# 1. 컨트롤 플레인 환경변수 템플릿 복사 및 설정
+cp .env.example .env
+
+# 2. Ansible 인벤토리 템플릿 복사 및 실서버 정보 입력
+cp ansible/inventory/hosts.yml.example ansible/inventory/hosts.yml
+```
+
 ### 1) Overseer 컨트롤 플레인 호스트 프로비저닝 (Docker CE + Podman 제거 + 하드닝)
 ```bash
 make ansible-provision-overseer
