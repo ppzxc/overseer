@@ -3,7 +3,7 @@
 ## 1. 프로젝트 개요 (Overview)
 **Overseer**는 소-중규모 IDC(온프레미스) 내 사내 인프라를 효율적이고 안전하게 관리하기 위한 **Docker Compose 기반 중앙 컨트롤 플레인 및 Ansible 프로비저닝 자동화 툴체인**입니다.
 
-- **중앙 컨트롤 플레인 (Control Plane)**: Docker Compose 기반으로 HCP Vault(SSH CA & 시크릿 관리), HashiCorp Boundary(Zero-Trust 접근 제어), PostgreSQL DB, Prometheus 모니터링을 통합 구동
+- **중앙 컨트롤 플레인 (Control Plane)**: Docker Compose 기반으로 OpenBao(SSH CA & 시크릿 관리), HashiCorp Boundary(Zero-Trust 접근 제어), PostgreSQL DB, Prometheus 모니터링을 통합 구동
 - **기존 인프라 마이그레이션**: 파편화된 기존 온프레미스 서버 환경을 정형화된 코드(IaC) 기반으로 표준화 및 이전
 - **신규 서버 프로비저닝**: 신규 하드웨어 및 VM(Hypervisor)의 초기 셋업(OS 보안, 네트워크, 방화벽, 계정, 에이전트) 자동화
 - **유지보수 및 형상 관리**: 정기 보안 패치, 모니터링 에이전트 업데이트, 멱등성 기반 상태 보장
@@ -14,8 +14,8 @@
 
 | 기술 | 역할 |
 |---|---|
-| **Docker Compose** | 중앙 컨트롤 플레인(Vault, Boundary, Postgres, Prometheus) 일괄 오케스트레이션 |
-| **HCP Vault** | 중앙 집중형 시크릿 관리, SSH Certificate Authority(CA) 서명, 임시 자격증명 발급 |
+| **Docker Compose** | 중앙 컨트롤 플레인(OpenBao, Boundary, Postgres, Prometheus) 일괄 오케스트레이션 |
+| **OpenBao** | 중앙 집중형 시크릿 관리, SSH Certificate Authority(CA) 서명, 임시 자격증명 발급 (Linux Foundation Open-Source Vault Fork) |
 | **HashiCorp Boundary** | 사내망 노출 없는 안전한 인프라 접근 제어(IAM), 세션 관리 및 감사 로그 |
 | **Ansible** | 온프레미스 노드 설정 자동화, 멱등성 기반 형상 관리 및 프로비저닝 |
 | **Prometheus** | 온프레미스 노드(`node_exporter`) 및 컨트롤 플레인 메트릭 수집 |
@@ -28,7 +28,7 @@
 overseer/
 ├── AGENTS.md                  # AI 및 엔지니어 협업 가이드 (본 문서)
 ├── README.md                  # 프로젝트 통합 개요 및 빠른 시작 가이드
-├── docker-compose.yml         # [메인] Vault, Boundary, Postgres, Prometheus 일괄 기동
+├── docker-compose.yml         # [메인] OpenBao, Boundary, Postgres, Prometheus 일괄 기동
 ├── .env.example               # 환경 변수 템플릿 (DB 자격증명, 토큰, KMS 키)
 ├── Makefile                   # 원클릭 통합 제어 인터페이스 (make bootstrap, up, test 등)
 │
@@ -43,17 +43,15 @@ overseer/
 │   └── PROVISIONING_AND_MIGRATION_GUIDELINE.md # 온프레미스 프로비저닝 & 마이그레이션 가이드
 │
 ├── tests/                     # [E2E 시스템 통합 테스트 스위트 (Pytest + Testinfra)]
-
 │   ├── conftest.py
 │   ├── test_01_control_plane.py
-│   ├── test_02_vault_ssh_ca.py
+│   ├── test_02_openbao_ssh_ca.py
 │   ├── test_03_boundary.py
 │   └── test_04_ansible_e2e.py
 │
-├── vault/                     # HCP / Self-hosted Vault 설정 & 초기화
-
-│   ├── config/vault.hcl       # Vault 서버 설정 (File storage, TCP Listener, UI)
-│   ├── policies/              # Vault ACL 정책 정의
+├── openbao/                   # OpenBao 오픈소스 시크릿/SSH CA 설정 & 초기화
+│   ├── config/openbao.hcl     # OpenBao 서버 설정 (File storage, TCP Listener, UI)
+│   ├── policies/              # OpenBao ACL 정책 정의
 │   └── scripts/               # SSH CA 엔진 활성화 및 역할 등록 스크립트
 │
 ├── boundary/                  # HashiCorp Boundary Zero-Trust 설정
@@ -74,7 +72,7 @@ overseer/
     ├── Dockerfile & docker-run.sh # Ansible 실행 컨테이너 환경
     ├── inventory/             # IDC 노드 인벤토리 및 그룹/호스트 변수
     ├── playbooks/             # provision.yml, maintenance.yml, site.yml
-    ├── roles/                 # common, security, vault_ssh_ca, boundary_target, monitoring
+    ├── roles/                 # common, security, openbao_ssh_ca, boundary_target, monitoring
     └── molecule/              # Molecule Rocky Linux / Ubuntu 통합 테스트 시나리오
 ```
 
@@ -87,12 +85,12 @@ overseer/
    - `shell`/`command` 모듈 사용 시 반드시 `creates`, `removes` 또는 `changed_when` 조건을 명시합니다.
 2. **Zero-Trust & 최소 권한 원칙**:
    - 루트 직접 SSH 접근을 전면 차단합니다.
-   - 정적 SSH 비밀번호/영구 개인키 사용을 지양하고 HCP Vault 기반 SSH Certificate 또는 Boundary 기반 접근을 지향합니다.
+   - 정적 SSH 비밀번호/영구 개인키 사용을 지양하고 OpenBao 기반 SSH Certificate 또는 Boundary 기반 접근을 지향합니다.
 3. **가독성 및 모듈화**:
    - 단일 플레이북에 모든 작업을 넣지 않고 Role 단위로 분리하여 유지 관리성을 극대화합니다.
    - 변수는 `group_vars` 및 `host_vars`로 분리하여 환경 종속적인 값을 하드코딩하지 않습니다.
 4. **안전한 레거시 마이그레이션 원칙 (Safe Migration Checklist)**:
-   - **SSH 락아웃(Lockout) 방지**: Vault SSH CA 및 관리자 키 동작이 확인되기 전에 비밀번호 로그인을 차단하지 않습니다.
+   - **SSH 락아웃(Lockout) 방지**: OpenBao SSH CA 및 관리자 키 동작이 확인되기 전에 비밀번호 로그인을 차단하지 않습니다.
    - **포트 사전 식별**: 방화벽 활성화 전 `ss -tulpn` 등으로 기존 LISTEN 포트를 필수 수집하여 `host_vars`에 정의합니다.
    - **사전 시뮬레이션**: 신규 적용 전 반드시 `--check --diff`로 변경점을 사전 검증합니다.
 5. **문서 최신화 의무 (Documentation Update)**:

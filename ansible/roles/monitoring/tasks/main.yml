@@ -42,7 +42,7 @@
       User={{ node_exporter_user }}
       Group={{ node_exporter_group }}
       Type=simple
-      ExecStart=/usr/local/bin/node_exporter --web.listen-address=:{{ node_exporter_port }}
+      ExecStart=/usr/local/bin/node_exporter --web.listen-address=127.0.0.1:{{ node_exporter_port }}
       Restart=always
       RestartSec=5
 

@@ -1,10 +1,10 @@
-# HashiCorp Vault Server Configuration for Overseer Control Plane
+# OpenBao Server Configuration for Overseer Control Plane
 
 ui = true
 disable_mlock = true
 
 storage "file" {
-  path = "/vault/data"
+  path = "/openbao/data"
 }
 
 # TCP 리스너 설정

@@ -1,6 +1,6 @@
 """
 E2E Test 01: Central Control Plane Services Health & Connectivity
-Verifies that PostgreSQL, Vault, Boundary, and Prometheus APIs are reachable and healthy.
+Verifies that PostgreSQL, OpenBao, and Boundary APIs are reachable and healthy.
 """
 
 import os
@@ -29,13 +29,13 @@ def test_ctrl_003_bootstrap_workflow(root_dir):
     bootstrap_script = root_dir / "scripts" / "bootstrap.sh"
     assert bootstrap_script.exists() and os.access(bootstrap_script, os.X_OK), "bootstrap.sh is missing or not executable"
 
-def test_vault_ctrl_001_vault_health(http_session, vault_url):
-    """[VAULT-CTRL-001] Vault Server Initialization and Unseal status"""
+def test_bao_ctrl_001_openbao_health(http_session, openbao_url):
+    """[BAO-CTRL-001] OpenBao Server Initialization and Unseal status"""
     try:
-        resp = http_session.get(f"{vault_url}/v1/sys/health", timeout=5)
-        assert resp.status_code in [200, 429, 503], f"Vault returned status: {resp.status_code}"
+        resp = http_session.get(f"{openbao_url}/v1/sys/health", timeout=5)
+        assert resp.status_code in [200, 429, 503], f"OpenBao returned status: {resp.status_code}"
     except requests.exceptions.ConnectionError:
-        pytest.fail(f"Could not connect to Vault at {vault_url}.")
+        pytest.fail(f"Could not connect to OpenBao at {openbao_url}.")
 
 def test_bnd_ctrl_001_boundary_health(http_session, boundary_url):
     """[BND-CTRL-001] Boundary Controller Database and API health"""
@@ -44,12 +44,3 @@ def test_bnd_ctrl_001_boundary_health(http_session, boundary_url):
         assert resp.status_code == 200, f"Boundary controller returned status {resp.status_code}"
     except requests.exceptions.ConnectionError:
         pytest.fail(f"Could not connect to Boundary at {boundary_url}.")
-
-def test_prom_ctrl_001_prometheus_health(http_session, prometheus_url):
-    """[PROM-CTRL-001] Prometheus Server Health and API"""
-    try:
-        resp = http_session.get(f"{prometheus_url}/-/healthy", timeout=5)
-        assert resp.status_code == 200, f"Prometheus returned status {resp.status_code}"
-        assert "Prometheus Server is Healthy" in resp.text
-    except requests.exceptions.ConnectionError:
-        pytest.fail(f"Could not connect to Prometheus at {prometheus_url}.")

@@ -3,7 +3,7 @@
 Overseer Full-Stack 3-Way Traceability & Specification Validator
 Validates strict consistency across the entire Overseer repository:
   1. Specification Documents (docs/ansible/*.md, docs/control-plane/*.md)
-  2. Infrastructure & Task Code (ansible/roles/, docker-compose.yml, vault/, boundary/, prometheus/)
+  2. Infrastructure & Task Code (ansible/roles/, docker-compose.yml, vault/, boundary/)
   3. Automated Tests (tests/test_*.py, ansible/molecule/default/verify.yml)
 Generates: docs/TRACEABILITY_MATRIX.md
 """
@@ -74,14 +74,12 @@ def extract_all_code_implementations():
         "CTRL-001": ("PostgreSQL Database Backend Service", "docker-compose.yml"),
         "CTRL-002": ("Overseer Bridge Network Isolation", "docker-compose.yml"),
         "CTRL-003": ("Automated Full Stack Bootstrap", "scripts/bootstrap.sh"),
-        "VAULT-CTRL-001": ("Vault Server Initialization and Unseal", "vault/config/vault.hcl"),
-        "VAULT-CTRL-002": ("Vault SSH CA Secrets Engine Mount", "vault/scripts/init-vault-ssh-ca.sh"),
-        "VAULT-CTRL-003": ("Vault SSH User Certificate Signing Role", "vault/scripts/init-vault-ssh-ca.sh"),
+        "BAO-CTRL-001": ("OpenBao Server Initialization and Unseal", "openbao/config/openbao.hcl"),
+        "BAO-CTRL-002": ("OpenBao SSH CA Secrets Engine Mount", "openbao/scripts/init-openbao-ssh-ca.sh"),
+        "BAO-CTRL-003": ("OpenBao SSH User Certificate Signing Role", "openbao/scripts/init-openbao-ssh-ca.sh"),
         "BND-CTRL-001": ("Boundary Controller Database and API", "boundary/config/controller.hcl"),
         "BND-CTRL-002": ("Boundary Cluster Communications", "boundary/config/controller.hcl"),
         "BND-CTRL-003": ("Boundary Worker Proxy Gateway", "boundary/config/worker.hcl"),
-        "PROM-CTRL-001": ("Prometheus Server Health and API", "docker-compose.yml"),
-        "PROM-CTRL-002": ("Prometheus Control Plane and Node Scrape Config", "prometheus/prometheus.yml"),
     }
     for spec_id, (name, loc) in cp_mappings.items():
         if (ROOT_DIR / loc).exists():
@@ -199,7 +197,7 @@ def main():
     print(f"{'Spec ID':<16} | {'Domain':<14} | {'Docs':<6} | {'Code':<6} | {'Test Mapping'}")
     print("-" * 80)
     for s_id in all_ids:
-        cat = specs.get(s_id, ("", "", "Unknown"))[2]
+        cat = specs.get(spec_id if (spec_id := s_id) in specs else "", ("", "", "Unknown"))[2]
         d_status = "OK" if s_id in specs else "FAIL"
         c_status = "OK" if s_id in code_items else "FAIL"
         t_status = test_mappings.get(s_id, "Integrated")

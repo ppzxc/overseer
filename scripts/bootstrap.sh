@@ -20,8 +20,8 @@ if [ ! -f ".env" ]; then
 fi
 
 # 2. Docker Compose 기동
-echo "[*] Launching Docker Compose services (Postgres, Vault, Boundary, Prometheus)..."
-docker compose up -d postgres vault prometheus
+echo "[*] Launching Docker Compose services (Postgres, OpenBao)..."
+docker compose up -d postgres openbao
 
 # 3. PostgreSQL 헬스 대기
 echo "[*] Waiting for PostgreSQL to be ready..."
@@ -37,19 +37,19 @@ docker compose run --rm --entrypoint /bin/sh boundary-controller -c "/boundary/s
 echo "[*] Starting Boundary Controller and Worker..."
 docker compose up -d boundary-controller boundary-worker
 
-# 5. Vault 초기화 & SSH CA 활성화
-echo "[*] Bootstrapping Vault SSH CA..."
-docker compose exec -T vault /bin/sh /vault/scripts/init-vault-ssh-ca.sh || true
+# 5. OpenBao 초기화 & SSH CA 활성화
+echo "[*] Bootstrapping OpenBao SSH CA..."
+docker compose exec -T openbao /bin/sh /openbao/scripts/init-openbao-ssh-ca.sh || true
 
 echo ""
 echo "================================================================================"
 echo "          Overseer Control Plane is UP and READY!                              "
 echo "================================================================================"
-echo "  - Vault Web UI:       http://localhost:8200"
+echo "  - OpenBao Web UI:     http://localhost:8200"
 echo "  - Boundary Admin UI:  http://localhost:9200"
-echo "  - Prometheus Web UI:  http://localhost:9090"
-echo "  - Vault SSH CA Key:   vault/data/vault-ssh-ca.pub"
+echo "  - OpenBao SSH CA Key: openbao/data/openbao-ssh-ca.pub"
 echo "================================================================================"
-echo "  To provision IDC nodes with Ansible:"
-echo "    make ansible-provision"
+echo "  To provision servers with Ansible:"
+echo "    make ansible-provision-overseer   # For Overseer Control Plane host"
+echo "    make ansible-provision-servers    # For IDC Target servers"
 echo "================================================================================"

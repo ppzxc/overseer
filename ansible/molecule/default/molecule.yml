@@ -35,7 +35,6 @@ provisioner:
         enable_boundary: false
         firewall_allowed_tcp_ports:
           - 22
-          - 9100
   options:
     diff: true
 

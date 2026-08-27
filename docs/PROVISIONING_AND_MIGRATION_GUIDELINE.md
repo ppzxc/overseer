@@ -63,25 +63,22 @@
 
 ---
 
-### 3) Monitoring (Prometheus Node Exporter)
+### 3) Monitoring (Node Exporter & OpenTelemetry Collector Contrib)
 
 #### [핵심 목표]
-- `node_exporter` 바이너리 설치 및 Systemd 서비스 등록
-- CPU, 메모리, 디스크 I/O, 네트워크 트래픽 등 하드웨어 및 OS 메트릭 수집(포트: 9100)
+- `node_exporter` 바이너리 설치 및 `127.0.0.1:9100` 로컬 루프백 서비스 등록
+- `otelcol-contrib`를 통한 로컬 메트릭/로그 수집 및 중앙 OpenObserve로 OTLP 아웃바운드 푸시 (호스트 인바운드 포트 불필요)
 
 #### [신규 프로비저닝 가이드]
-- 표준 버전 바이너리를 다운로드하여 시스템 유저(`node_exporter`) 권한으로 실행합니다.
+- 표준 버전 바이너리를 다운로드하여 시스템 유저(`node_exporter`, `otelcol`) 권한으로 실행합니다.
 
 #### [기존 머신 마이그레이션 주의사항 & 체크리스트]
-- [ ] **포트 9100 점유 여부 확인**:
-  - 기존에 구버전 `node_exporter` 또는 타사 에이전트가 9100 포트를 사용 중인지 확인:
-    ```bash
-    ss -tulpn | grep :9100
-    ```
+- [ ] **로컬 9100 점유 여부 확인**:
+  - 기존에 구버전 `node_exporter` 또는 타사 에이전트가 9100 포트를 로컬에서 점유 중인지 확인 (`ss -tulpn | grep :9100`)
 - [ ] **기존 모니터링 에이전트 마이그레이션**:
   - 이전 수집 에이전트(Zabbix, Telegraf, Datadog 등)가 병행 실행되어야 하는지, 아니면 완전 대체 대상인지 사전에 협의 후 프로세스 정리
-- [ ] **방화벽 허용**:
-  - Prometheus 서버 또는 사내 모니터링 수집기(Scraper) IP 대역에서 9100 포트 인바운드가 열려있는지 확인
+- [ ] **OTLP 아웃바운드 통신 확인**:
+  - 타겟 노드에서 중앙 OpenObserve 엔드포인트로의 아웃바운드(Outbound) HTTP/gRPC 통신이 허용되어 있는지 확인 (인바운드 포트 오픈 불필요)
 
 ---
 
@@ -105,7 +102,6 @@ firewall_allowed_tcp_ports:
   - 22    # SSH
   - 80    # Nginx HTTP
   - 443   # Nginx HTTPS
-  - 9100  # Node Exporter
   - 8080  # 사내 백엔드 앱
 ```
 

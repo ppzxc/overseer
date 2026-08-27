@@ -39,9 +39,9 @@ if [ -S "/var/run/docker.sock" ]; then
     DOCKER_RUN_OPTS+=(-v "/var/run/docker.sock:/var/run/docker.sock")
 fi
 
-# 환경 변수 전달 (Vault 토큰, Ansible 환경변수 등)
-[ -n "${VAULT_ADDR}" ] && DOCKER_RUN_OPTS+=(-e VAULT_ADDR="${VAULT_ADDR}")
-[ -n "${VAULT_TOKEN}" ] && DOCKER_RUN_OPTS+=(-e VAULT_TOKEN="${VAULT_TOKEN}")
+# 환경 변수 전달 (OpenBao 토큰, Ansible 환경변수 등)
+[ -n "${BAO_ADDR}" ] && DOCKER_RUN_OPTS+=(-e BAO_ADDR="${BAO_ADDR}")
+[ -n "${BAO_TOKEN}" ] && DOCKER_RUN_OPTS+=(-e BAO_TOKEN="${BAO_TOKEN}")
 
 # 3. 명령어 실행
 if [ $# -eq 0 ]; then

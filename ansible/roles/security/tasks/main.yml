@@ -142,26 +142,3 @@
   when: fail2ban_install_result is defined and not fail2ban_install_result.failed | default(false)
   notify: Restart fail2ban
   failed_when: false
-
-# 10. Subnet-based firewall restrictions
-- name: "[SEC-016] Restrict Node Exporter port to monitoring subnets in Firewalld (RHEL/Rocky 7+)"
-  ansible.posix.firewalld:
-    rich_rule: 'rule family="ipv4" source address="{{ item }}" port port="9100" protocol="tcp" accept'
-    permanent: yes
-    state: enabled
-    immediate: yes
-  loop: "{{ monitoring_allowed_subnets }}"
-  when:
-    - ansible_os_family == "RedHat"
-    - ansible_distribution_major_version | int >= 7
-  failed_when: false
-
-- name: "[SEC-017] Restrict Node Exporter port to monitoring subnets in UFW (Debian)"
-  community.general.ufw:
-    rule: allow
-    src: "{{ item }}"
-    port: "9100"
-    proto: tcp
-  loop: "{{ monitoring_allowed_subnets }}"
-  when: ansible_os_family == "Debian"
-  failed_when: false

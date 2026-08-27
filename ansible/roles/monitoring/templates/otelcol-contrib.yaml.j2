@@ -1,5 +1,5 @@
-# OpenTelemetry Collector Contrib Configuration for Overseer Managed IDC Node
-# Ingests Node Exporter metrics, system logs, and forwards to Central OpenObserve
+# OpenTelemetry Collector Contrib Configuration for Overseer Managed Host
+# Ingests Node Exporter & Docker metrics, system logs, and forwards to Central OTLP Backend
 
 receivers:
   # 1. Prometheus Scrape receiver for local Node Exporter
@@ -10,6 +10,12 @@ receivers:
           scrape_interval: 15s
           static_configs:
             - targets: ['127.0.0.1:{{ node_exporter_port }}']
+{% if docker_metrics_enabled | default(false) | bool %}
+        - job_name: 'docker-engine-local'
+          scrape_interval: 15s
+          static_configs:
+            - targets: ['{{ docker_metrics_address | default("127.0.0.1:9323") }}']
+{% endif %}
 
   # 2. Hostmetrics receiver for kernel & hardware stats
   hostmetrics:
@@ -22,15 +28,25 @@ receivers:
       load:
       network:
 
-  # 3. Filelog receiver for critical system and audit logs
+  # 3. Filelog receiver for critical system and audit logs (ISMS/ISMS-P Baseline)
   filelog/system:
     include:
-      - /var/log/messages
-      - /var/log/syslog
-      - /var/log/secure
-      - /var/log/auth.log
-      - /var/log/sudo.log
-      - /var/log/audit/audit.log
+{% for log_path in otel_system_logs | default([
+  '/var/log/messages',
+  '/var/log/syslog',
+  '/var/log/secure',
+  '/var/log/auth.log',
+  '/var/log/sudo.log',
+  '/var/log/audit/audit.log',
+  '/var/log/cron*',
+  '/var/log/fail2ban.log',
+  '/var/log/dnf.log',
+  '/var/log/yum.log',
+  '/var/log/dpkg.log',
+  '/var/log/firewalld'
+]) %}
+      - {{ log_path }}
+{% endfor %}
     start_at: end
     retry_on_failure:
       enabled: true
@@ -60,13 +76,16 @@ processors:
       hostname_sources: [os]
 
 exporters:
-  otlp/openobserve:
-    endpoint: "{{ openobserve_otlp_endpoint }}"
+  otlp/backend:
+    endpoint: "{{ otel_target_endpoint | default('127.0.0.1:4317') }}"
     tls:
-      insecure: true
-{% if openobserve_auth_header is defined and openobserve_auth_header | length > 0 %}
+      insecure: {{ otel_target_insecure | default(true) | bool | lower }}
+{% if otel_target_headers is defined and otel_target_headers | length > 0 %}
     headers:
-      Authorization: "{{ openobserve_auth_header }}"
+      {{ otel_target_headers | to_nice_yaml(indent=2) | indent(6) }}
+{% elif otel_auth_header is defined and otel_auth_header | length > 0 %}
+    headers:
+      Authorization: "{{ otel_auth_header }}"
 {% endif %}
 
 service:
@@ -74,17 +93,17 @@ service:
     metrics:
       receivers: [prometheus, hostmetrics, otlp]
       processors: [memory_limiter, batch, resourcedetection]
-      exporters: [otlp/openobserve]
+      exporters: [otlp/backend]
 
     logs:
       receivers: [filelog/system, otlp]
       processors: [memory_limiter, batch, resourcedetection]
-      exporters: [otlp/openobserve]
+      exporters: [otlp/backend]
 
     traces:
       receivers: [otlp]
       processors: [memory_limiter, batch, resourcedetection]
-      exporters: [otlp/openobserve]
+      exporters: [otlp/backend]
 
   telemetry:
     logs:

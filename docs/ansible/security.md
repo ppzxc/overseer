@@ -42,7 +42,7 @@
   - `ufw` (Debian/Ubuntu) / `firewalld` (RHEL/Rocky) / `fail2ban` : 데몬 활성화 및 자동 기동
 - 🌐 **네트워크 및 방화벽 규칙**:
   - 기본 인바운드 정책: `DENY` / `DROP`
-  - 허용 인바운드 TCP 포트: SSH(`22`), Node Exporter(`9100`), 사용자 정의 포트(`security_allowed_tcp_ports`)
+  - 허용 인바운드 TCP 포트: SSH(`22`), 사용자 정의 포트(`firewall_allowed_tcp_ports`) (※ Node Exporter는 로컬 `127.0.0.1` 바인딩 및 Otel Collector 아웃바운드 푸시 구조로 인바운드 포트 불필요)
 
 ---
 
@@ -65,6 +65,4 @@
 | `SEC-013` | `Ensure Auditd service is running and enabled` | `ansible.builtin.service` | RHEL / Rocky | 서비스 기동 상태면 `ok` |
 | `SEC-014` | `Configure Sudo timestamp timeout and log file` | `ansible.builtin.copy` | All | Checksum 비교 (`validate: visudo`) |
 | `SEC-015` | `Deploy Fail2ban SSH jail configuration` | `ansible.builtin.template` | All | Checksum 비교 (`fail2ban-sshd.local.j2`) |
-| `SEC-016` | `Restrict Node Exporter port to monitoring subnets in Firewalld (RHEL/Rocky 7+)` | `ansible.posix.firewalld` | RHEL 7+, Rocky | Rich Rule 기등록 시 `ok` |
-| `SEC-017` | `Restrict Node Exporter port to monitoring subnets in UFW (Debian)` | `community.general.ufw` | Debian, Ubuntu | 룰 기등록 시 `ok` |
 

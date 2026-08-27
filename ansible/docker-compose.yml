@@ -9,8 +9,8 @@ services:
       - ~/.ssh:/root/.ssh:ro
     environment:
       - ANSIBLE_FORCE_COLOR=True
-      - VAULT_ADDR=${VAULT_ADDR:-}
-      - VAULT_TOKEN=${VAULT_TOKEN:-}
+      - BAO_ADDR=${BAO_ADDR:-}
+      - BAO_TOKEN=${BAO_TOKEN:-}
     working_dir: /ansible
     entrypoint: ["ansible-playbook"]
     command: ["--help"]

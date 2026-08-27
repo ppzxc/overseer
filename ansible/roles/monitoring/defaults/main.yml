@@ -13,8 +13,28 @@ otelcol_arch: "{{ 'amd64' if ansible_architecture == 'x86_64' else 'arm64' }}"
 otelcol_user: "otelcol-contrib"
 otelcol_group: "otelcol-contrib"
 
-# OpenObserve 중앙 관제 엔드포인트 연동
-openobserve_otlp_endpoint: "http://127.0.0.1:5080/api/default"
-openobserve_auth_header: ""
-openobserve_stream_metrics: "default"
-openobserve_stream_logs: "default"
+# Docker Metrics Scrape Toggle
+docker_metrics_enabled: false
+docker_metrics_address: "127.0.0.1:9323"
+
+# OpenTelemetry Target Backend Endpoint
+otel_target_endpoint: "127.0.0.1:4317"
+otel_target_insecure: true
+otel_target_headers: {}
+otel_auth_header: ""
+
+# OpenTelemetry Collector System Logs to Ingest (ISMS/ISMS-P Baseline)
+otel_system_logs:
+  - /var/log/messages
+  - /var/log/syslog
+  - /var/log/secure
+  - /var/log/auth.log
+  - /var/log/sudo.log
+  - /var/log/audit/audit.log
+  - /var/log/cron*
+  - /var/log/fail2ban.log
+  - /var/log/dnf.log
+  - /var/log/yum.log
+  - /var/log/dpkg.log
+  - /var/log/firewalld
+

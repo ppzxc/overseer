@@ -10,7 +10,6 @@ ssh_client_alive_count_max: 2
 # 방화벽 허용 기본 포트
 firewall_allowed_tcp_ports:
   - "{{ ssh_port | default(22) }}"
-  - 9100
 
 # 서브넷 제한
 admin_allowed_subnets:

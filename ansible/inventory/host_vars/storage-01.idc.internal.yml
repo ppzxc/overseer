@@ -2,7 +2,6 @@
 # storage-01 호스트 전용 개별 변수 오버라이드
 firewall_allowed_tcp_ports:
   - 22    # SSH
-  - 9100  # Node Exporter
   - 2049  # NFS
   - 3260  # iSCSI target
 
