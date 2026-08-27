@@ -120,10 +120,12 @@
     owner: root
     group: root
     mode: '0644'
+  register: otelcol_unit_created
   when:
     - enable_otelcol | default(true) | bool
     - ansible_service_mgr == "systemd"
   notify: Restart otelcol-contrib
+
 
 - name: "[MON-006] Ensure otelcol-contrib service is started and enabled"
   ansible.builtin.systemd:
@@ -133,4 +135,7 @@
   when:
     - enable_otelcol | default(true) | bool
     - ansible_service_mgr == "systemd"
+    - not ansible_check_mode or (otelcol_unit_created is defined and not otelcol_unit_created.changed)
+  ignore_errors: "{{ ansible_check_mode }}"
+
 

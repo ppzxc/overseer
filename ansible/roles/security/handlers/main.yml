@@ -18,6 +18,8 @@
     name: fail2ban
     state: restarted
     enabled: true
+  failed_when: false
+
 
 - name: Restart auditd
   ansible.builtin.service:
