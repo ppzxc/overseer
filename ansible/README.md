@@ -41,7 +41,7 @@ ansible/
 
 ### 1) `common`
 - **타임존 설정**: `Asia/Seoul` (기본값)
-- **NTP 동기화**: `chrony` 패키지 설치 및 IDC 권장 타임 서버 구성 (`chrony.conf.j2`)
+- **NTP 동기화**: `chrony` 패키지 설치 및 한국 IDC 권장 타임 소스(`ntp_pools`: `kr.pool.ntp.org`, `ntp_servers`: `time.kriss.re.kr`, `time2.kriss.re.kr`, `time.cloudflare.com`) 기반 Standard UTC 동기화 구성 (`chrony.conf.j2`)
 - **필수 유틸리티 패키지 일괄 설치**: `curl`, `wget`, `git`, `vim`, `htop`, `iotop`, `net-tools`, `jq` 등
 - **커널 튜닝 (sysctl)**: 파일 디스크립터(`fs.file-max`), 소켓 버퍼(`net.core.somaxconn`), `vm.swappiness=10`, `vm.max_map_count=262144` 최적화
 - **시스템 한도 & 저널링**: 보안 리소스 제한(`/etc/security/limits.d/99-limits.conf`, nofile/nproc 65535), `systemd-journald` 2GB 보존 상한 설정
@@ -76,11 +76,11 @@ ansible/
 ### 5) `monitoring` (하이브리드 관제 & OpenObserve)
 - **Prometheus Node Exporter**:
   - 아키텍처(amd64 / arm64) 자동 판별 후 GitHub 릴리즈 바이너리 다운로드
-  - 전용 시스템 계정(`node_exporter`) 생성 및 Systemd 서비스 등록 (`:9100`)
+  - 전용 시스템 계정(`node_exporter`) 생성 및 Systemd 서비스 등록 (`127.0.0.1:9100` 로컬 루프백 전용 바인딩)
 - **OpenTelemetry Collector Contrib (`otelcol-contrib`)**:
   - Standalone Systemd 데몬 배포
   - 로컬 Node Exporter 스크랩(`127.0.0.1:9100`) + OS/Audit 시스템 로그(`/var/log/*`, `/var/log/audit`) 수집
-  - 어플리케이션 OTLP gRPC(`:4317`) / HTTP(`:4318`) 수신 및 중앙 **OpenObserve**로 단일 OTLP 스트리밍 전송
+  - 어플리케이션 OTLP gRPC(`:4317`) / HTTP(`:4318`) 수신 및 중앙 **OpenObserve**로 단일 OTLP 스트리밍 아웃바운드 전송 (호스트 인바운드 방화벽 오픈 불필요)
 
 
 ---
@@ -98,7 +98,80 @@ ansible/
 
 ---
 
-## 4. 플레이북 실행 및 호스트 선택 가이드
+## 4. 인벤토리 및 변수 구성 가이드
+
+### 인벤토리 (`inventory/hosts.yml`)
+
+```yaml
+all:
+  children:
+    compute_nodes:
+      hosts:
+        compute-01.idc.internal:
+          ansible_host: 192.168.10.10
+        compute-02.idc.internal:
+          ansible_host: 192.168.10.11
+    storage_nodes:
+      hosts:
+        storage-01.idc.internal:
+          ansible_host: 192.168.10.20
+```
+
+### 전역 변수 (`inventory/group_vars/all.yml`)
+
+```yaml
+# 관리자 및 타임존
+admin_user: "infra-admin"
+timezone: "Asia/Seoul"
+
+# 기능 토글
+enable_vault_ssh_ca: true
+enable_boundary: true
+enable_otelcol: true
+
+# 방화벽 허용 포트
+firewall_allowed_tcp_ports:
+  - 22
+```
+
+---
+
+## 5. 빠른 실행 가이드 (Quick Run)
+
+```bash
+# 1. 인벤토리 구문 검사
+./docker-run.sh playbooks/provision.yml --syntax-check
+
+# 2. Dry-Run 시뮬레이션 (Check & Diff)
+./docker-run.sh playbooks/provision.yml -k -K --check --diff
+
+# 3. 실제 프로비저닝 실행
+./docker-run.sh playbooks/provision.yml -k -K
+
+# 4. 특정 태그만 실행 (예: 보안 하드닝만)
+./docker-run.sh playbooks/provision.yml --tags "security"
+
+# 5. 정기 유지보수 (패치 및 서비스 재기동)
+./docker-run.sh playbooks/maintenance.yml
+```
+
+---
+
+## 6. 프로비저닝 & 마이그레이션 전략 (Provisioning vs Migration)
+
+상세 가이드: [docs/PROVISIONING_AND_MIGRATION_GUIDELINE.md](file:///home/ppzxc/projects/overseer/docs/PROVISIONING_AND_MIGRATION_GUIDELINE.md)
+
+### 핵심 요약
+
+| 역할 (Role) | 신규 서버 프로비저닝 (Greenfield) | 기존 머신 마이그레이션 (Brownfield) 주의사항 |
+|---|---|---|
+| **`common`** | 타임존/NTP, 기본 도구, sysctl 튜닝 일괄 적용 | 기존 NTP 데몬 충돌 점검, 기존 앱 전용 sysctl 보존, 기존 계정 덮어쓰기 방지 |
+| **`security`** | SSH 하드닝 및 방화벽 기본 차단 즉시 적용 | **SSH 락아웃 방지** (Vault CA 인증 성공 전 비밀번호 차단 금지), **운영 포트 사전 조사** 후 방화벽 적용 |
+| **`monitoring`** | Node Exporter + Otelcol 배포 (OTLP 아웃바운드 푸시) | 로컬 포트 9100 중복 확인, 중앙 OpenObserve 아웃바운드 통신 확인 |
+
+---
+
+## 7. 플레이북 실행 및 호스트 선택 가이드
 
 Ansible의 `--limit` (`-l`) 옵션과 인벤토리 그룹을 통해 **원하는 특정 단일 호스트, 복수 호스트, OS 세대별 그룹**만 정밀하게 선택하여 실행할 수 있습니다.
 

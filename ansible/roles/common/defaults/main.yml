@@ -1,8 +1,13 @@
 ---
 timezone: "Asia/Seoul"
 locale: "en_US.UTF-8"
+# NTP Pool 및 개별 Time Server 분리 구성 (Standard UTC 기준, Leap Smear 미적용 소스 일원화)
+ntp_pools:
+  - "kr.pool.ntp.org"
+
 ntp_servers:
-  - "time.google.com"
+  - "time.kriss.re.kr"
+  - "time2.kriss.re.kr"
   - "time.cloudflare.com"
 
 common_packages:

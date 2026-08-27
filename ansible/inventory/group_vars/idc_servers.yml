@@ -1,9 +1,12 @@
 ---
-# 온프레미스 IDC 서버 그룹 변수
-ntp_servers:
-  - "time.google.com"
-  - "time.cloudflare.com"
+# 온프레미스 IDC 서버 그룹 변수 (Standard UTC / Leap Smear 미적용 소스 일원화)
+ntp_pools:
   - "kr.pool.ntp.org"
+
+ntp_servers:
+  - "time.kriss.re.kr"
+  - "time2.kriss.re.kr"
+  - "time.cloudflare.com"
 
 # 커널 파라미터 (sysctl) 튜닝
 sysctl_settings:

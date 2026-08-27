@@ -9,7 +9,7 @@
 - **표준 타임존 동기화**: 전 노드의 타임존을 표준 시간대(`Asia/Seoul`)로 통일.
 - **레거시 OS 저장소 복구 (CentOS 6/7)**: 공식 EOL로 인해 중단된 yum 미러를 `vault.centos.org` 아카이브 저장소로 자동 치환.
 - **필수 시스템 패키지 및 EPEL 설치**: OS 패밀리(Debian/Ubuntu, RHEL 6/7/8/9/10, Rocky)별 적합한 패키지 관리자(APT, YUM, DNF)를 사용하여 기본 도구(`curl`, `vim`, `net-tools`, `tar` 등) 및 EPEL 저장소, 진단 도구(`htop`, `iotop`) 설치.
-- **NTP 시간 동기화 데몬 구성**: 최신 OS에서는 `Chrony`, 레거시 CentOS 6에서는 `NTP`를 구성하여 지정된 사내/공용 NTP 서버와 지속 동기화.
+- **NTP 시간 동기화 데몬 구성**: 최신 OS에서는 `Chrony`, 레거시 CentOS 6에서는 `NTP`를 구성하여 지정된 사내/공용 NTP 서버와 지속 동기화. 한국 표준시(KRISS: `time.kriss.re.kr`, `time2.kriss.re.kr`), 국내 전용 NTP Pool(`kr.pool.ntp.org`), 글로벌 Anycast(`time.cloudflare.com`)를 조합한 Standard UTC(Leap Smear 미적용) 소스 분리(`ntp_pools`, `ntp_servers`) 구성 지원.
 - **커널 파라미터(sysctl) 최적화**: 파일 디스크립터 한도 확장, TCP 연결 재사용 및 메모리 스왑 동작 최적화.
 - **표준 관리자 계정 및 SSH 접근 환경**: 비루트 표준 관리자(`admin_user`) 계정 생성, 패스워드리스 `sudoers` 권한 부여 및 관리자 SSH 공개키 배포.
 
