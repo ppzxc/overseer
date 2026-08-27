@@ -37,6 +37,8 @@
 | `COMMON-009` | Ansible Node | Ensure Chrony service is running (Modern OS) | ✅ OK | ✅ `ansible/common` | ⚡ `Integrated in Pipeline` |
 | `COMMON-010` | Ansible Node | Ensure NTP service is running (CentOS 6 legacy) | ✅ OK | ✅ `ansible/common` | ⚡ `Integrated in Pipeline` |
 | `COMMON-011` | Ansible Node | Apply sysctl kernel tuning | ✅ OK | ✅ `ansible/common` | ✅ `Molecule Direct Verify` |
+| `COMMON-011-IPV6` | Ansible Node | Disable IPv6 via sysctl | ✅ OK | ✅ `ansible/common` | ⚡ `Integrated in Pipeline` |
+| `COMMON-011-EXTRA` | Ansible Node | Apply extra sysctl kernel tuning | ✅ OK | ✅ `ansible/common` | ⚡ `Integrated in Pipeline` |
 | `COMMON-012` | Ansible Node | Ensure admin user group exists | ✅ OK | ✅ `ansible/common` | ✅ `Molecule Direct Verify` |
 | `COMMON-013` | Ansible Node | Ensure admin user exists with sudo privileges | ✅ OK | ✅ `ansible/common` | ✅ `Molecule Direct Verify` |
 | `COMMON-014` | Ansible Node | Enable passwordless sudo for admin user | ✅ OK | ✅ `ansible/common` | ✅ `Molecule Direct Verify` |

@@ -80,6 +80,28 @@
     sysctl_set: yes
   loop: "{{ sysctl_settings | dict2items }}"
 
+- name: "[COMMON-011-IPV6] Disable IPv6 via sysctl"
+  ansible.posix.sysctl:
+    name: "{{ item.key }}"
+    value: "{{ item.value }}"
+    state: present
+    reload: yes
+    sysctl_set: yes
+  loop: "{{ sysctl_ipv6_settings | dict2items }}"
+  when: disable_ipv6 | default(false) | bool
+
+- name: "[COMMON-011-EXTRA] Apply extra sysctl kernel tuning"
+  ansible.posix.sysctl:
+    name: "{{ item.key }}"
+    value: "{{ item.value }}"
+    state: present
+    reload: yes
+    sysctl_set: yes
+  loop: "{{ sysctl_extra_settings | default({}) | dict2items }}"
+  when:
+    - sysctl_extra_settings is defined
+    - sysctl_extra_settings | length > 0
+
 - name: "[COMMON-012] Ensure admin user group exists"
   ansible.builtin.group:
     name: "{{ admin_user }}"

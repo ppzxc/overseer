@@ -10,6 +10,7 @@
 |---|---|---|---|
 | **`overseer`** | `inventory/group_vars/overseer.yml` | OpenBao, Boundary, Postgres 컨트롤 플레인 구동 호스트 | `playbooks/provision_overseer.yml` |
 | **`servers`** | `inventory/group_vars/servers.yml` | 온프레미스 IDC 일반 서버 노드 (타겟 서버) | `playbooks/provision_servers.yml` |
+| **`loadbalancers`**| `inventory/group_vars/loadbalancers.yml` | HAProxy, Keepalived, VIP 로드밸런서 노드 (L4 포워딩 & ARP Flux 방지) | `playbooks/provision_servers.yml` |
 
 ---
 
