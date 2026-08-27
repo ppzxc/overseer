@@ -22,11 +22,17 @@ otel_hostmetrics_scrapers:
 docker_metrics_enabled: false
 docker_metrics_address: "127.0.0.1:9323"
 
+# OTLP Ingestion Endpoints (For Application Metrics, Logs, and Traces)
+otel_otlp_grpc_port: 4317
+otel_otlp_http_port: 4318
+otel_traces_enabled: true
+
 # OpenTelemetry Target Backend Endpoint
 otel_target_endpoint: "127.0.0.1:4317"
 otel_target_insecure: true
 otel_target_headers: {}
 otel_auth_header: ""
+
 
 # OpenTelemetry Collector System Logs to Ingest (ISMS/ISMS-P Baseline)
 otel_system_logs:

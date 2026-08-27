@@ -102,5 +102,7 @@ def test_monitoring_node_exporter_removed_and_hostmetrics_enabled(root_dir):
     template_content = template_file.read_text(encoding='utf-8')
     assert "node_exporter" not in template_content, "Template should not contain node_exporter references"
     assert "hostmetrics:" in template_content, "Template must configure hostmetrics receiver"
+    assert "traces:" in template_content, "Template must configure traces pipeline"
+
 
 

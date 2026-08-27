@@ -51,13 +51,13 @@ receivers:
     retry_on_failure:
       enabled: true
 
-  # 4. Standard OTLP ingestion for application containers/services
+  # 4. Standard OTLP ingestion for application containers/services (Metrics, Logs, and Distributed Tracing)
   otlp:
     protocols:
       grpc:
-        endpoint: 0.0.0.0:4317
+        endpoint: "0.0.0.0:{{ otel_otlp_grpc_port | default(4317) }}"
       http:
-        endpoint: 0.0.0.0:4318
+        endpoint: "0.0.0.0:{{ otel_otlp_http_port | default(4318) }}"
 
 processors:
   memory_limiter:
@@ -100,12 +100,16 @@ service:
       processors: [memory_limiter, batch, resourcedetection]
       exporters: [otlp/backend]
 
+{% if otel_traces_enabled | default(true) | bool %}
+    # Distributed Traces Pipeline (Forward trace spans from container/apps to OpenObserve)
     traces:
       receivers: [otlp]
       processors: [memory_limiter, batch, resourcedetection]
       exporters: [otlp/backend]
+{% endif %}
 
   telemetry:
     logs:
       level: info
+
 
