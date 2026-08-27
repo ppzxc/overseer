@@ -130,6 +130,7 @@
     key: "{{ item }}"
     state: present
   loop: "{{ admin_ssh_public_keys | default([]) | map('trim') | reject('equalto', '') | list }}"
+  ignore_errors: "{{ ansible_check_mode }}"
   when:
     - admin_ssh_public_keys is defined
     - (admin_ssh_public_keys | default([]) | map('trim') | reject('equalto', '') | list | length) > 0

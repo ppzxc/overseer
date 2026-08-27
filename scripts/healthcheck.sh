@@ -24,3 +24,10 @@ if curl -s http://127.0.0.1:9200/v1/health >/dev/null 2>&1; then
 else
     echo "STARTING / UNHEALTHY"
 fi
+
+echo -n "4. Semaphore UI (3000): "
+if curl -s http://127.0.0.1:3000/api/ping >/dev/null 2>&1 || curl -s http://127.0.0.1:3000/ >/dev/null 2>&1; then
+    echo "HEALTHY"
+else
+    echo "STARTING / UNHEALTHY"
+fi

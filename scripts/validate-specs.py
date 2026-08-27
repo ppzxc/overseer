@@ -74,6 +74,7 @@ def extract_all_code_implementations():
         "CTRL-001": ("PostgreSQL Database Backend Service", "docker-compose.yml"),
         "CTRL-002": ("Overseer Bridge Network Isolation", "docker-compose.yml"),
         "CTRL-003": ("Automated Full Stack Bootstrap", "scripts/bootstrap.sh"),
+        "CTRL-004": ("Ansible Semaphore Web UI and Orchestrator service", "docker-compose.yml"),
         "BAO-CTRL-001": ("OpenBao Server Initialization and Unseal", "openbao/config/openbao.hcl"),
         "BAO-CTRL-002": ("OpenBao SSH CA Secrets Engine Mount", "openbao/scripts/init-openbao-ssh-ca.sh"),
         "BAO-CTRL-003": ("OpenBao SSH User Certificate Signing Role", "openbao/scripts/init-openbao-ssh-ca.sh"),

@@ -4,6 +4,13 @@ services:
     image: postgres:15-alpine
     container_name: overseer-postgres
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1024M
+        reservations:
+          memory: 256M
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-boundary}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-boundarypassword}
@@ -23,6 +30,13 @@ services:
     image: openbao/openbao:latest
     container_name: overseer-openbao
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          memory: 128M
     cap_add:
       - IPC_LOCK
     ports:
@@ -43,6 +57,13 @@ services:
     image: hashicorp/boundary:0.15
     container_name: overseer-boundary-controller
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          memory: 128M
     depends_on:
       postgres:
         condition: service_healthy
@@ -61,6 +82,13 @@ services:
     image: hashicorp/boundary:0.15
     container_name: overseer-boundary-worker
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1.5'
+          memory: 1024M
+        reservations:
+          memory: 256M
     depends_on:
       - boundary-controller
     ports:
@@ -71,13 +99,58 @@ services:
     networks:
       - overseer-net
 
-  # 5. Ansible Provisioning Runner
+  # 5. Semaphore UI (Ansible Web UI & Orchestrator)
+  semaphore:
+    image: semaphoreui/semaphore:latest
+    container_name: overseer-semaphore
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1.5'
+          memory: 1024M
+        reservations:
+          memory: 256M
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    environment:
+      SEMAPHORE_DB_DIALECT: postgres
+      SEMAPHORE_DB_HOST: postgres
+      SEMAPHORE_DB_PORT: 5432
+      SEMAPHORE_DB_USER: ${POSTGRES_USER:-boundary}
+      SEMAPHORE_DB_PASS: ${POSTGRES_PASSWORD:-boundarypassword}
+      SEMAPHORE_DB: ${SEMAPHORE_DB:-semaphore}
+      SEMAPHORE_ADMIN: ${SEMAPHORE_ADMIN:-admin}
+      SEMAPHORE_ADMIN_NAME: ${SEMAPHORE_ADMIN_NAME:-Admin}
+      SEMAPHORE_ADMIN_EMAIL: ${SEMAPHORE_ADMIN_EMAIL:-admin@overseer.local}
+      SEMAPHORE_ADMIN_PASSWORD: ${SEMAPHORE_ADMIN_PASSWORD:-semaphoreadmin}
+      SEMAPHORE_ACCESS_KEY_ENCRYPTION: ${SEMAPHORE_ACCESS_KEY_ENCRYPTION:-GS3py5Y8+GvF12x0fTfR18k2h4eE9W2d1C8N6Q8T4=0}
+      ANSIBLE_HOST_KEY_CHECKING: "False"
+      BAO_ADDR: http://openbao:8200
+    volumes:
+      - ./ansible:/ansible
+      - ./openbao/data:/openbao/data:ro
+      - ~/.ssh:/root/.ssh:ro
+    networks:
+      - overseer-net
+
+  # 6. Ansible Provisioning Runner (CLI / Background)
   ansible:
     build:
       context: ./ansible
       dockerfile: Dockerfile
     image: overseer-ansible:latest
     container_name: overseer-ansible-runner
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2048M
+        reservations:
+          memory: 512M
     volumes:
       - ./ansible:/ansible
       - ./openbao/data:/openbao/data:ro
@@ -91,6 +164,7 @@ services:
       - overseer-net
     entrypoint: ["ansible-playbook"]
     command: ["--help"]
+
 
 volumes:
   postgres-data:

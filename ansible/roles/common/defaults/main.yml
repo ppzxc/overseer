@@ -62,31 +62,45 @@ sysctl_ipv6_settings:
 # 추가 커널 파라미터 (개별 그룹/호스트에서 기본값을 유지하면서 확장할 때 사용)
 sysctl_extra_settings: {}
 
+# System ulimit (pam_limits) 설정
+# 기본 권장값: 65535 (일반 웹/WAS 표준)
+# 필요 시 group_vars 또는 host_vars에서 262144 (DB/캐시) 또는 1048576 (초고성능 게이트웨이/커널 최대치) 등으로 재정의 가능
+system_limit_nofile: 65535
+system_limit_nproc: 65535
+
 system_limits:
   - domain: "*"
     limit_type: "soft"
     limit_item: "nofile"
-    value: 100000
+    value: "{{ system_limit_nofile }}"
   - domain: "*"
     limit_type: "hard"
     limit_item: "nofile"
-    value: 100000
+    value: "{{ system_limit_nofile }}"
   - domain: "*"
     limit_type: "soft"
     limit_item: "nproc"
-    value: 100000
+    value: "{{ system_limit_nproc }}"
   - domain: "*"
     limit_type: "hard"
     limit_item: "nproc"
-    value: 100000
+    value: "{{ system_limit_nproc }}"
   - domain: "root"
     limit_type: "soft"
     limit_item: "nofile"
-    value: 100000
+    value: "{{ system_limit_nofile }}"
   - domain: "root"
     limit_type: "hard"
     limit_item: "nofile"
-    value: 100000
+    value: "{{ system_limit_nofile }}"
+  - domain: "root"
+    limit_type: "soft"
+    limit_item: "nproc"
+    value: "{{ system_limit_nproc }}"
+  - domain: "root"
+    limit_type: "hard"
+    limit_item: "nproc"
+    value: "{{ system_limit_nproc }}"
 
 journald_max_use: "2G"
 journald_max_retention: "1month"

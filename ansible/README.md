@@ -49,6 +49,11 @@ cp inventory/hosts.yml.example inventory/hosts.yml
 ```
 
 ### 1. 플레이북 실행
+#### Option A: Semaphore Web UI를 통한 실행 (권장)
+- 브라우저 접속: `http://<호스트IP>:3000` (초기 계정: `admin` / `semaphoreadmin`)
+- UI에서 **Playbook Template** 선택 후 버튼 클릭으로 간편 실행 및 실시간 모니터링
+
+#### Option B: CLI 스크립트 직접 실행
 ```bash
 # 1. Overseer 컨트롤 플레인 전용 호스트 프로비저닝 (Docker CE + Podman 제거 + 하드닝)
 ./docker-run.sh playbooks/provision_overseer.yml

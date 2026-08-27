@@ -23,6 +23,10 @@ def boundary_url():
     return os.getenv("BOUNDARY_ADDR", "http://127.0.0.1:9200")
 
 @pytest.fixture(scope="session")
+def semaphore_url():
+    return os.getenv("SEMAPHORE_ADDR", "http://127.0.0.1:3000")
+
+@pytest.fixture(scope="session")
 def prometheus_url():
     return os.getenv("PROMETHEUS_ADDR", "http://127.0.0.1:9090")
 

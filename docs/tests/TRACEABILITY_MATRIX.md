@@ -1,8 +1,8 @@
 # Overseer 3-Way Traceability Matrix (자동 생성)
 
-> **최종 검증 일시**: `2026-08-27 23:00:23`  
+> **최종 검증 일시**: `2026-08-28 08:46:21`  
 > **검증 상태**: `✅ 100% PASS`  
-> **스펙 총계**: `82` 개 (Control Plane: 9, Ansible: 73)
+> **스펙 총계**: `83` 개 (Control Plane: 10, Ansible: 73)
 
 ---
 
@@ -53,6 +53,7 @@
 | `CTRL-001` | Control Plane | PostgreSQL Database Backend Service | ✅ OK | ✅ `docker-compose.yml` | ✅ `Pytest E2E (test_01_control_plane.py)` |
 | `CTRL-002` | Control Plane | Overseer Bridge Network Isolation | ✅ OK | ✅ `docker-compose.yml` | ✅ `Pytest E2E (test_01_control_plane.py)` |
 | `CTRL-003` | Control Plane | Automated Full Stack Bootstrap | ✅ OK | ✅ `scripts/bootstrap.sh` | ✅ `Pytest E2E (test_01_control_plane.py)` |
+| `CTRL-004` | Control Plane | Ansible Semaphore Web UI and Orchestrator service | ✅ OK | ✅ `docker-compose.yml` | ✅ `Pytest E2E (test_01_control_plane.py)` |
 | `DOC-001` | Ansible Node | Remove conflicting packages and Podman stack (RedHat/Rocky) | ✅ OK | ✅ `ansible/docker_engine` | ⚡ `Integrated in Pipeline` |
 | `DOC-002` | Ansible Node | Remove conflicting packages and old Docker stack (Debian/Ubuntu) | ✅ OK | ✅ `ansible/docker_engine` | ⚡ `Integrated in Pipeline` |
 | `DOC-003` | Ansible Node | Install Docker repository prerequisites (RedHat/Rocky) | ✅ OK | ✅ `ansible/docker_engine` | ⚡ `Integrated in Pipeline` |

@@ -11,8 +11,8 @@
 │                    Overseer Central Control Plane (Docker Compose)          │
 │                                                                             │
 │  ┌──────────────────┐    ┌──────────────────┐    ┌───────────────────────┐  │
-│  │     OpenBao      │    │     Boundary     │    │     Ansible Runner    │  │
-│  │ (SSH CA, Secrets)│    │ (Zero-Trust IAM) │    │  (Node Provisioning)  │  │
+│  │     OpenBao      │    │     Boundary     │    │ Semaphore UI (Web UI) │  │
+│  │ (SSH CA, Secrets)│    │ (Zero-Trust IAM) │    │ & Ansible Runner      │  │
 │  └────────┬─────────┘    └────────┬─────────┘    └───────────▲───────────┘  │
 │           │                       │                          │              │
 │  ┌────────▼───────────────────────▼──────────────────────────┴───────────┐  │
@@ -20,7 +20,7 @@
 │  └───────────────────────────────────────────────────────────────────────┘  │
 └──────────────────────────────────────┬──────────────────────────────────────┘
                                        │
-                    Ansible Provisioning / Automation
+                    Ansible Provisioning / Automation (Web UI & CLI)
                                        │
 ┌──────────────────────────────────────▼──────────────────────────────────────┐
 │                            IDC On-Premise Nodes                             │
@@ -63,16 +63,19 @@ cp ansible/inventory/hosts.yml.example ansible/inventory/hosts.yml
 make ansible-provision-overseer
 ```
 
-### 2) 중앙 컨트롤 플레인 부트스트랩 (OpenBao + Boundary + Postgres)
+### 2) 중앙 컨트롤 플레인 부트스트랩 (OpenBao + Boundary + Semaphore + Postgres)
 ```bash
-# 전체 스택 기동 및 OpenBao SSH CA / Boundary DB 일괄 초기화
+# 전체 스택 기동 및 OpenBao SSH CA / Boundary DB / Semaphore DB 일괄 초기화
 make bootstrap
 ```
 
 - **OpenBao Web UI**: [http://localhost:8200](http://localhost:8200)
 - **Boundary Admin UI**: [http://localhost:9200](http://localhost:9200)
+- **Semaphore Ansible Web UI**: [http://localhost:3000](http://localhost:3000) (초기 계정: `admin` / `semaphoreadmin`)
 
-### 3) 온프레미스 대상 서버 프로비저닝 (Ansible)
+### 3) 온프레미스 대상 서버 프로비저닝 (Semaphore Web UI 또는 CLI)
+- **Web UI 방식**: [http://localhost:3000](http://localhost:3000) 접속 후 Semaphore Task 템플릿에서 `Provision Servers` 실행
+- **CLI 방식**:
 ```bash
 # 대상 서버 베이스라인 프로비저닝 (OpenBao SSH CA + Boundary Target + OTEL Agent)
 make ansible-provision-servers
