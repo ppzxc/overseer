@@ -1,8 +1,4 @@
-"""
-E2E Test 04: Ansible Inventory & Architecture Validation
-Verifies that Ansible configuration, inventory definitions (overseer & servers), playbooks, and roles are properly wired.
-"""
-
+import os
 import yaml
 import pytest
 from pathlib import Path
@@ -41,6 +37,24 @@ def test_ansible_inventory_and_vars(root_dir):
     # servers group_vars 검증
     servers_vars_file = root_dir / "ansible" / "inventory" / "group_vars" / "servers.yml"
     assert servers_vars_file.exists(), "group_vars/servers.yml is missing"
+
+def test_ansible_execution_architecture(root_dir):
+    """Ansible 실행 아키텍처 및 Semaphore 통합 구조 검증 (Option A)"""
+    compose_file = root_dir / "docker-compose.yml"
+    assert compose_file.exists(), "docker-compose.yml is missing"
+    compose_content = compose_file.read_text(encoding="utf-8")
+    
+    # 1. 상시 실행은 semaphore 서비스로 일원화
+    assert "semaphore:" in compose_content, "semaphore service must be defined in docker-compose.yml"
+    assert "image: semaphoreui/semaphore:latest" in compose_content, "Semaphore image must be configured"
+    
+    # 2. 로컬 개발 및 테스트용 docker-run.sh 스크립트 존재
+    docker_run_script = root_dir / "ansible" / "docker-run.sh"
+    assert docker_run_script.exists() and os.access(docker_run_script, os.X_OK), "ansible/docker-run.sh is missing or not executable"
+    
+    # 3. Semaphore가 ansible 디렉토리 및 OpenBao CA 볼륨을 마운트하는지 검증
+    assert "- ./ansible:/ansible" in compose_content, "Semaphore must mount ./ansible volume"
+    assert "- ./openbao/data:/openbao/data:ro" in compose_content, "Semaphore must mount OpenBao data volume"
 
 def test_ansible_playbooks_structure(root_dir):
     """Ansible 플레이북 분리 구조 검증"""

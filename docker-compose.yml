@@ -137,35 +137,6 @@ services:
     networks:
       - overseer-net
 
-  # 6. Ansible Provisioning Runner (CLI / Background)
-  ansible:
-    build:
-      context: ./ansible
-      dockerfile: Dockerfile
-    image: overseer-ansible:latest
-    container_name: overseer-ansible-runner
-    deploy:
-      resources:
-        limits:
-          cpus: '2.0'
-          memory: 2048M
-        reservations:
-          memory: 512M
-    volumes:
-      - ./ansible:/ansible
-      - ./openbao/data:/openbao/data:ro
-      - ~/.ssh:/root/.ssh:ro
-      - /var/run/docker.sock:/var/run/docker.sock
-    environment:
-      - ANSIBLE_FORCE_COLOR=True
-      - BAO_ADDR=http://openbao:8200
-    working_dir: /ansible
-    networks:
-      - overseer-net
-    entrypoint: ["ansible-playbook"]
-    command: ["--help"]
-
-
 volumes:
   postgres-data:
 
