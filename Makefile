@@ -1,52 +1,100 @@
-.PHONY: help up down restart status logs bootstrap init-openbao init-boundary init-semaphore spec-check test test-e2e clean
+.PHONY: help up down restart status logs bootstrap \
+        start-openbao stop-openbao restart-openbao init-openbao \
+        start-boundary stop-boundary restart-boundary init-boundary \
+        start-semaphore stop-semaphore restart-semaphore init-semaphore \
+        start-postgres stop-postgres restart-postgres init-postgres \
+        spec-check test test-e2e clean
 
 # Default Target
 help:
 	@echo "================================================================================"
 	@echo "                      Overseer Infrastructure Control Plane                     "
 	@echo "================================================================================"
-	@echo "  make bootstrap       - Full bootstrap (Compose up + OpenBao + Boundary + Semaphore)"
-	@echo "  make up              - Start Docker Compose services in background"
-	@echo "  make down            - Stop and remove Docker Compose services"
-	@echo "  make restart         - Restart all control plane services"
-	@echo "  make status          - Check health of OpenBao, Boundary, PostgreSQL, Semaphore"
-	@echo "  make logs            - View Docker Compose logs"
+	@echo "  make up / bootstrap           - Start & bootstrap all Control Plane components"
+	@echo "  make down                     - Stop all Control Plane components"
+	@echo "  make restart                  - Restart all Control Plane components"
+	@echo "  make status                   - Check health of OpenBao, Boundary, Postgres, Semaphore"
+	@echo "  make logs                     - View live logs of all services"
 	@echo "--------------------------------------------------------------------------------"
-	@echo "  make init-openbao    - Initialize OpenBao and bootstrap SSH CA engine"
-	@echo "  make init-boundary   - Initialize Boundary database and configuration"
-	@echo "  make init-semaphore  - Seed Semaphore UI projects, repositories, and templates"
-	@echo "  make spec-check      - Validate 3-way consistency (Docs <-> Code <-> Tests)"
-	@echo "  make test            - Run 3-Way Spec Check and Pytest E2E Suite"
-	@echo "  make test-e2e        - Run Pytest E2E System Integration Tests"
+	@echo "  Individual Service Management (OpenBao, Boundary, Semaphore, Postgres):"
+	@echo "  make start-<service>          - Start individual service (e.g. make start-openbao)"
+	@echo "  make stop-<service>           - Stop individual service (e.g. make stop-boundary)"
+	@echo "  make restart-<service>        - Restart individual service (e.g. make restart-semaphore)"
+	@echo "  make init-<service>           - Run component init (e.g. make init-openbao)"
+	@echo "--------------------------------------------------------------------------------"
+	@echo "  make spec-check               - Validate 3-way consistency (Docs <-> Code <-> Tests)"
+	@echo "  make test / test-e2e          - Run Pytest E2E System Integration Tests"
 	@echo "================================================================================"
 
-bootstrap:
-	@./scripts/bootstrap.sh
-
-up:
-	@docker compose up -d
+# Unified Actions
+up bootstrap:
+	@./scripts/overseer.sh start all
 
 down:
-	@docker compose down
+	@./scripts/overseer.sh stop all
 
 restart:
-	@docker compose restart
+	@./scripts/overseer.sh restart all
 
 status:
-	@./scripts/healthcheck.sh
+	@./scripts/overseer.sh status
 
 logs:
-	@docker compose logs -f
+	@./scripts/overseer.sh logs all
+
+# OpenBao Actions
+start-openbao:
+	@./scripts/overseer.sh start openbao
+
+stop-openbao:
+	@./scripts/overseer.sh stop openbao
+
+restart-openbao:
+	@./scripts/overseer.sh restart openbao
 
 init-openbao:
-	@docker compose exec openbao /bin/sh /openbao/scripts/init-openbao-ssh-ca.sh
+	@./scripts/overseer.sh init openbao
+
+# Boundary Actions
+start-boundary:
+	@./scripts/overseer.sh start boundary
+
+stop-boundary:
+	@./scripts/overseer.sh stop boundary
+
+restart-boundary:
+	@./scripts/overseer.sh restart boundary
 
 init-boundary:
-	@docker compose run --rm --entrypoint /bin/sh boundary-controller -c "/boundary/scripts/init-boundary.sh"
+	@./scripts/overseer.sh init boundary
+
+# Semaphore Actions
+start-semaphore:
+	@./scripts/overseer.sh start semaphore
+
+stop-semaphore:
+	@./scripts/overseer.sh stop semaphore
+
+restart-semaphore:
+	@./scripts/overseer.sh restart semaphore
 
 init-semaphore:
-	@./scripts/init-semaphore.sh
+	@./scripts/overseer.sh init semaphore
 
+# PostgreSQL Actions
+start-postgres:
+	@./scripts/overseer.sh start postgres
+
+stop-postgres:
+	@./scripts/overseer.sh stop postgres
+
+restart-postgres:
+	@./scripts/overseer.sh restart postgres
+
+init-postgres:
+	@./scripts/overseer.sh init postgres
+
+# Testing & Verification
 spec-check:
 	@./scripts/validate-specs.py
 

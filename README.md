@@ -40,10 +40,20 @@
 cp .env.example .env
 ```
 
-### 1) 중앙 컨트롤 플레인 부트스트랩 (OpenBao + Boundary + Semaphore + Postgres)
+### 1) 중앙 컨트롤 플레인 부트스트랩 및 서비스 제어
 ```bash
-# 전체 스택 기동 및 OpenBao SSH CA / Boundary DB / Semaphore DB & GitOps 템플릿 일괄 초기화
-make bootstrap
+# [전체 통합] 전체 스택 기동 및 초기화 (OpenBao SSH CA / Boundary DB / Semaphore DB & GitOps 시딩)
+make bootstrap        # 또는 ./scripts/overseer.sh start all
+
+# [전체 상태 확인 / 중지]
+make status           # 또는 ./scripts/overseer.sh status
+make down             # 또는 ./scripts/overseer.sh stop all
+
+# [개별 서비스 기동/중지/초기화]
+make start-openbao    # OpenBao만 기동 및 SSH CA 언실/초기화
+make start-boundary   # Boundary만 기동 및 DB 마이그레이션
+make start-semaphore  # Semaphore만 기동 및 GitOps 템플릿 시딩
+make stop-boundary    # Boundary 컨테이너 중지
 ```
 
 - **OpenBao Web UI**: [http://localhost:8200](http://localhost:8200)
