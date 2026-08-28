@@ -53,3 +53,11 @@ def test_ctrl_004_semaphore_health(http_session, semaphore_url):
     except requests.exceptions.ConnectionError:
         # In isolated non-live unit test environment, verify configuration presence
         assert os.path.exists("/var/run/docker.sock") or True
+
+def test_ctrl_005_semaphore_seeding(root_dir):
+    """[CTRL-005] Automated Semaphore Project and Template Seeding script"""
+    init_script = root_dir / "scripts" / "init-semaphore.sh"
+    assert init_script.exists() and os.access(init_script, os.X_OK), "scripts/init-semaphore.sh is missing or not executable"
+    content = init_script.read_text(encoding="utf-8")
+    assert "Overseer Infrastructure" in content, "Project name missing in init-semaphore.sh"
+    assert "playbooks/provision_servers.yml" in content, "playbooks template missing in init-semaphore.sh"

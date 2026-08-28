@@ -47,6 +47,9 @@ init-openbao:
 init-boundary:
 	@docker compose run --rm --entrypoint /bin/sh boundary-controller -c "/boundary/scripts/init-boundary.sh"
 
+init-semaphore:
+	@./scripts/init-semaphore.sh
+
 spec-check:
 	@./scripts/validate-specs.py
 

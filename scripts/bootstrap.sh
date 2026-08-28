@@ -46,6 +46,10 @@ docker compose up -d boundary-controller boundary-worker semaphore
 echo "[*] Bootstrapping OpenBao SSH CA..."
 docker compose exec -T openbao /bin/sh /openbao/scripts/init-openbao-ssh-ca.sh || true
 
+# 6. Semaphore UI 사전 등록 (Project, Repos, Inventory, Templates Seeding)
+echo "[*] Initializing Semaphore UI project and task templates..."
+./scripts/init-semaphore.sh || true
+
 echo ""
 echo "================================================================================"
 echo "          Overseer Control Plane is UP and READY!                              "
