@@ -27,10 +27,6 @@ def semaphore_url():
     return os.getenv("SEMAPHORE_ADDR", "http://127.0.0.1:3000")
 
 @pytest.fixture(scope="session")
-def prometheus_url():
-    return os.getenv("PROMETHEUS_ADDR", "http://127.0.0.1:9090")
-
-@pytest.fixture(scope="session")
 def openbao_token(root_dir):
     env_token = os.getenv("BAO_TOKEN")
     if env_token:

@@ -15,26 +15,23 @@ from datetime import datetime
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 DOCS_DIR = ROOT_DIR / "docs"
-NODE_PROV_DIR = ROOT_DIR.parent / "node-provisioner"
-ANSIBLE_ROLES_DIR = (ROOT_DIR / "ansible" / "roles") if (ROOT_DIR / "ansible" / "roles").exists() else (NODE_PROV_DIR / "roles")
 TESTS_DIR = ROOT_DIR / "tests"
-MOLECULE_VERIFY_FILE = (ROOT_DIR / "ansible" / "molecule" / "default" / "verify.yml") if (ROOT_DIR / "ansible").exists() else (NODE_PROV_DIR / "molecule" / "default" / "verify.yml")
 TRACEABILITY_REPORT_FILE = DOCS_DIR / "tests" / "TRACEABILITY_MATRIX.md"
 
 DOC_TABLE_PATTERN = re.compile(r"\|\s*`([A-Z0-9_\-]+)`\s*\|\s*`?([^`|]+)`?\s*\|")
 CODE_TASK_PATTERN = re.compile(r"\[([A-Z0-9_\-]+)\]\s*(.+)")
-TEST_SPEC_PATTERN = re.compile(r"\[([A-Z0-9_\-]+)\]|\[VERIFY-([A-Z0-9_\-]+)\]")
+TEST_SPEC_PATTERN = re.compile(r"\[([A-Z0-9_\-]+)\]")
 
 def extract_all_specs():
-    """docs/**/*.md 에서 모든 스펙 ID와 명칭 추출"""
+    """docs/control-plane/*.md 에서 컨트롤 플레인 스펙 ID와 명칭 추출"""
     specs = {} # {id: (name, file_path, category)}
     duplicates = []
     
     for md_file in sorted(DOCS_DIR.glob("**/*.md")):
-        if md_file.name in ["INDEX.md", "TRACEABILITY_MATRIX.md", "README.md", "PROVISIONING_AND_MIGRATION_GUIDELINE.md", "ANSIBLE_TESTING_GUIDELINE.md", "E2E_TESTING_GUIDELINE.md", "CONTEXT.md", "issue-tracker.md", "domain.md", "triage-labels.md"]:
+        if md_file.name in ["INDEX.md", "TRACEABILITY_MATRIX.md", "README.md", "PROVISIONING_AND_MIGRATION_GUIDELINE.md", "E2E_TESTING_GUIDELINE.md", "CONTEXT.md", "issue-tracker.md", "domain.md", "triage-labels.md"]:
             continue
 
-        category = "Control Plane" if "control-plane" in str(md_file) else "Ansible Node"
+        category = "Control Plane"
         content = md_file.read_text(encoding="utf-8")
         for line in content.splitlines():
             match = DOC_TABLE_PATTERN.search(line)
@@ -50,27 +47,10 @@ def extract_all_specs():
     return specs, duplicates
 
 def extract_all_code_implementations():
-    """Ansible 태스크 및 Control Plane 설정에서 구현 ID 추출"""
+    """Control Plane 설정 및 스크립트에서 구현 ID 추출"""
     code_items = {} # {id: (name, location)}
     duplicates = []
     
-    # 1. Ansible Tasks
-    for task_file in sorted(ANSIBLE_ROLES_DIR.glob("*/tasks/*.yml")):
-        content = task_file.read_text(encoding="utf-8")
-        for line in content.splitlines():
-            line_str = line.strip()
-            if line_str.startswith("- name:") or line_str.startswith("name:"):
-                name_part = line_str.split("name:", 1)[1].strip().strip('"').strip("'")
-                match = CODE_TASK_PATTERN.search(name_part)
-                if match:
-                    spec_id = match.group(1).strip()
-                    task_name = match.group(2).strip()
-                    if spec_id in code_items:
-                        duplicates.append((spec_id, task_file.name, code_items[spec_id][1]))
-                    else:
-                        code_items[spec_id] = (task_name, f"ansible/{task_file.parent.parent.name}")
-                        
-    # 2. Control Plane 컴포넌트 (코드 파일 존재 및 Compose 매핑)
     cp_mappings = {
         "CTRL-001": ("PostgreSQL Database Backend Service", "docker-compose.yml"),
         "CTRL-002": ("Overseer Bridge Network Isolation", "docker-compose.yml"),
@@ -91,16 +71,9 @@ def extract_all_code_implementations():
     return code_items, duplicates
 
 def extract_all_tests():
-    """Molecule verify.yml 및 tests/test_*.py 에서 테스트 중인 ID 추출"""
+    """tests/test_*.py 에서 테스트 중인 ID 추출"""
     test_mappings = {} # {id: test_source}
     
-    # 1. Molecule Verify Tasks
-    if MOLECULE_VERIFY_FILE.exists():
-        content = MOLECULE_VERIFY_FILE.read_text(encoding="utf-8")
-        for match in re.finditer(r"\[VERIFY-([A-Z0-9_\-]+)\]", content):
-            test_mappings[match.group(1).strip()] = "Molecule Direct Verify"
-            
-    # 2. Root Pytest E2E Suite
     for py_test in sorted(TESTS_DIR.glob("test_*.py")):
         content = py_test.read_text(encoding="utf-8")
         for line in content.splitlines():
