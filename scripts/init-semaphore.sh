@@ -12,6 +12,8 @@ cd "${SCRIPT_DIR}"
 SEMAPHORE_ADDR="${SEMAPHORE_ADDR:-http://127.0.0.1:3000}"
 SEMAPHORE_ADMIN="${SEMAPHORE_ADMIN:-admin}"
 SEMAPHORE_ADMIN_PASSWORD="${SEMAPHORE_ADMIN_PASSWORD:-semaphoreadmin}"
+ANSIBLE_REPO_URL="${ANSIBLE_REPO_URL:-https://github.com/ppzxc/node-provisioner.git}"
+ANSIBLE_REPO_BRANCH="${ANSIBLE_REPO_BRANCH:-main}"
 
 echo "[*] Connecting to Semaphore UI at ${SEMAPHORE_ADDR}..."
 
@@ -78,15 +80,15 @@ if [ -z "${KEY_ID}" ] || [ "${KEY_ID}" == "null" ]; then
     KEY_ID=$(echo "${NEW_KEY}" | jq -r '.id')
 fi
 
-# 5. Repository 등록 (로컬 /ansible 볼륨)
+# 5. Repository 등록 (GitOps 원격 Git 레포지토리 연동)
 REPOS_JSON=$(curl -s -b "${COOKIE_JAR}" "${SEMAPHORE_ADDR}/api/project/${PROJECT_ID}/repositories")
-REPO_ID=$(echo "${REPOS_JSON}" | jq -r '.[] | select(.name == "Overseer Local Ansible") | .id' 2>/dev/null || true)
+REPO_ID=$(echo "${REPOS_JSON}" | jq -r '.[] | select(.name == "Node Provisioner GitOps") | .id' 2>/dev/null || true)
 
 if [ -z "${REPO_ID}" ] || [ "${REPO_ID}" == "null" ]; then
-    echo "[*] Registering Local Repository in Semaphore..."
+    echo "[*] Registering GitOps Repository (${ANSIBLE_REPO_URL}) in Semaphore..."
     NEW_REPO=$(curl -s -b "${COOKIE_JAR}" -X POST "${SEMAPHORE_ADDR}/api/project/${PROJECT_ID}/repositories" \
         -H "Content-Type: application/json" \
-        -d "{\"name\": \"Overseer Local Ansible\", \"git_url\": \"file:///ansible\", \"git_branch\": \"main\", \"ssh_key_id\": ${KEY_ID}}")
+        -d "{\"name\": \"Node Provisioner GitOps\", \"git_url\": \"${ANSIBLE_REPO_URL}\", \"git_branch\": \"${ANSIBLE_REPO_BRANCH}\", \"ssh_key_id\": ${KEY_ID}}")
     REPO_ID=$(echo "${NEW_REPO}" | jq -r '.id')
     echo "[+] Registered Repository ID: ${REPO_ID}"
 fi

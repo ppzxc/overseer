@@ -15,9 +15,10 @@ from datetime import datetime
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 DOCS_DIR = ROOT_DIR / "docs"
-ANSIBLE_ROLES_DIR = ROOT_DIR / "ansible" / "roles"
+NODE_PROV_DIR = ROOT_DIR.parent / "node-provisioner"
+ANSIBLE_ROLES_DIR = (ROOT_DIR / "ansible" / "roles") if (ROOT_DIR / "ansible" / "roles").exists() else (NODE_PROV_DIR / "roles")
 TESTS_DIR = ROOT_DIR / "tests"
-MOLECULE_VERIFY_FILE = ROOT_DIR / "ansible" / "molecule" / "default" / "verify.yml"
+MOLECULE_VERIFY_FILE = (ROOT_DIR / "ansible" / "molecule" / "default" / "verify.yml") if (ROOT_DIR / "ansible").exists() else (NODE_PROV_DIR / "molecule" / "default" / "verify.yml")
 TRACEABILITY_REPORT_FILE = DOCS_DIR / "tests" / "TRACEABILITY_MATRIX.md"
 
 DOC_TABLE_PATTERN = re.compile(r"\|\s*`([A-Z0-9_\-]+)`\s*\|\s*`?([^`|]+)`?\s*\|")

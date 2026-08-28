@@ -5,10 +5,11 @@ from pathlib import Path
 
 def test_ansible_inventory_and_vars(root_dir):
     """Ansible 인벤토리 및 group_vars 파일 유효성 검증 (overseer / servers 그룹 격리)"""
-    inv_file = root_dir / "ansible" / "inventory" / "hosts.yml"
+    node_prov_dir = (root_dir / "ansible") if (root_dir / "ansible").exists() else (root_dir.parent / "node-provisioner")
+    inv_file = node_prov_dir / "inventory" / "hosts.yml"
     if not inv_file.exists():
-        inv_file = root_dir / "ansible" / "inventory" / "hosts.yml.example"
-    assert inv_file.exists(), "Inventory file hosts.yml or hosts.yml.example is missing"
+        inv_file = node_prov_dir / "inventory" / "hosts.yml.example"
+    assert inv_file.exists(), f"Inventory file missing in {node_prov_dir}"
     
     with open(inv_file, 'r', encoding='utf-8') as f:
         inv_data = yaml.safe_load(f)
@@ -18,7 +19,7 @@ def test_ansible_inventory_and_vars(root_dir):
     assert "servers" in children, "Missing 'servers' group in inventory"
     
     # group_vars 검증
-    all_vars_file = root_dir / "ansible" / "inventory" / "group_vars" / "all.yml"
+    all_vars_file = node_prov_dir / "inventory" / "group_vars" / "all.yml"
     assert all_vars_file.exists(), "group_vars/all.yml is missing"
     with open(all_vars_file, 'r', encoding='utf-8') as f:
         all_vars = yaml.safe_load(f)
@@ -27,7 +28,7 @@ def test_ansible_inventory_and_vars(root_dir):
     assert "otel_target_endpoint" in all_vars, "otel_target_endpoint is not defined in all.yml"
 
     # overseer group_vars 검증
-    overseer_vars_file = root_dir / "ansible" / "inventory" / "group_vars" / "overseer.yml"
+    overseer_vars_file = node_prov_dir / "inventory" / "group_vars" / "overseer.yml"
     assert overseer_vars_file.exists(), "group_vars/overseer.yml is missing"
     with open(overseer_vars_file, 'r', encoding='utf-8') as f:
         overseer_vars = yaml.safe_load(f)
@@ -35,11 +36,11 @@ def test_ansible_inventory_and_vars(root_dir):
     assert "docker_metrics_enabled" in overseer_vars, "docker_metrics_enabled is not defined in overseer.yml"
 
     # servers group_vars 검증
-    servers_vars_file = root_dir / "ansible" / "inventory" / "group_vars" / "servers.yml"
+    servers_vars_file = node_prov_dir / "inventory" / "group_vars" / "servers.yml"
     assert servers_vars_file.exists(), "group_vars/servers.yml is missing"
 
 def test_ansible_execution_architecture(root_dir):
-    """Ansible 실행 아키텍처 및 Semaphore 통합 구조 검증 (Option A)"""
+    """Ansible 실행 아키텍처 및 Semaphore 통합 구조 검증 (GitOps 기반)"""
     compose_file = root_dir / "docker-compose.yml"
     assert compose_file.exists(), "docker-compose.yml is missing"
     compose_content = compose_file.read_text(encoding="utf-8")
@@ -48,17 +49,14 @@ def test_ansible_execution_architecture(root_dir):
     assert "semaphore:" in compose_content, "semaphore service must be defined in docker-compose.yml"
     assert "image: semaphoreui/semaphore:latest" in compose_content, "Semaphore image must be configured"
     
-    # 2. 로컬 개발 및 테스트용 docker-run.sh 스크립트 존재
-    docker_run_script = root_dir / "ansible" / "docker-run.sh"
-    assert docker_run_script.exists() and os.access(docker_run_script, os.X_OK), "ansible/docker-run.sh is missing or not executable"
-    
-    # 3. Semaphore가 ansible 디렉토리 및 OpenBao CA 볼륨을 마운트하는지 검증
-    assert "- ./ansible:/ansible" in compose_content, "Semaphore must mount ./ansible volume"
+    # 2. GitOps 데이터 볼륨 및 OpenBao CA 볼륨 마운트 검증
+    assert "semaphore-data:/tmp/semaphore" in compose_content, "Semaphore must use dedicated data volume"
     assert "- ./openbao/data:/openbao/data:ro" in compose_content, "Semaphore must mount OpenBao data volume"
 
 def test_ansible_playbooks_structure(root_dir):
     """Ansible 플레이북 분리 구조 검증"""
-    playbooks_dir = root_dir / "ansible" / "playbooks"
+    node_prov_dir = (root_dir / "ansible") if (root_dir / "ansible").exists() else (root_dir.parent / "node-provisioner")
+    playbooks_dir = node_prov_dir / "playbooks"
     assert (playbooks_dir / "provision_overseer.yml").exists(), "provision_overseer.yml is missing"
     assert (playbooks_dir / "provision_servers.yml").exists(), "provision_servers.yml is missing"
     assert (playbooks_dir / "provision.yml").exists(), "provision.yml is missing"
@@ -67,7 +65,8 @@ def test_ansible_playbooks_structure(root_dir):
 
 def test_ansible_roles_structure(root_dir):
     """Ansible 신규 역할(docker_engine, overseer_control_plane) 구조 검증"""
-    roles_dir = root_dir / "ansible" / "roles"
+    node_prov_dir = (root_dir / "ansible") if (root_dir / "ansible").exists() else (root_dir.parent / "node-provisioner")
+    roles_dir = node_prov_dir / "roles"
     expected_roles = ["docker_engine", "overseer_control_plane", "common", "security", "openbao_ssh_ca", "boundary_target", "monitoring"]
     for role in expected_roles:
         assert (roles_dir / role).exists(), f"Role {role} is missing"
@@ -75,7 +74,8 @@ def test_ansible_roles_structure(root_dir):
 
 def test_monitoring_otel_system_logs(root_dir):
     """모니터링 역할(monitoring)의 OTel 시스템 로그 수집 경로 검증 (ISMS/ISMS-P 커버리지)"""
-    defaults_file = root_dir / "ansible" / "roles" / "monitoring" / "defaults" / "main.yml"
+    node_prov_dir = (root_dir / "ansible") if (root_dir / "ansible").exists() else (root_dir.parent / "node-provisioner")
+    defaults_file = node_prov_dir / "roles" / "monitoring" / "defaults" / "main.yml"
     assert defaults_file.exists(), "monitoring defaults/main.yml is missing"
     with open(defaults_file, 'r', encoding='utf-8') as f:
         defaults = yaml.safe_load(f)
@@ -102,7 +102,8 @@ def test_monitoring_otel_system_logs(root_dir):
 
 def test_monitoring_node_exporter_removed_and_hostmetrics_enabled(root_dir):
     """Node Exporter 변수 및 설정 제거와 OTel hostmetrics receiver 활성화 상태 검증"""
-    defaults_file = root_dir / "ansible" / "roles" / "monitoring" / "defaults" / "main.yml"
+    node_prov_dir = (root_dir / "ansible") if (root_dir / "ansible").exists() else (root_dir.parent / "node-provisioner")
+    defaults_file = node_prov_dir / "roles" / "monitoring" / "defaults" / "main.yml"
     with open(defaults_file, 'r', encoding='utf-8') as f:
         defaults = yaml.safe_load(f)
 
@@ -113,7 +114,7 @@ def test_monitoring_node_exporter_removed_and_hostmetrics_enabled(root_dir):
     assert "cleanup_legacy_node_exporter" in defaults, "cleanup_legacy_node_exporter should be present"
 
     # 템플릿 검증
-    template_file = root_dir / "ansible" / "roles" / "monitoring" / "templates" / "otelcol-contrib.yaml.j2"
+    template_file = node_prov_dir / "roles" / "monitoring" / "templates" / "otelcol-contrib.yaml.j2"
     assert template_file.exists(), "otelcol-contrib template file is missing"
     template_content = template_file.read_text(encoding='utf-8')
     assert "node_exporter" not in template_content, "Template should not contain node_exporter references"

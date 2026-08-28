@@ -131,7 +131,7 @@ services:
       ANSIBLE_HOST_KEY_CHECKING: "False"
       BAO_ADDR: http://openbao:8200
     volumes:
-      - ./ansible:/ansible
+      - semaphore-data:/tmp/semaphore
       - ./openbao/data:/openbao/data:ro
       - ~/.ssh:/root/.ssh:ro
     networks:
@@ -139,6 +139,7 @@ services:
 
 volumes:
   postgres-data:
+  semaphore-data:
 
 networks:
   overseer-net:
