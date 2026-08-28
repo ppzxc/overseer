@@ -54,7 +54,7 @@ def extract_all_code_implementations():
     cp_mappings = {
         "CTRL-001": ("PostgreSQL Database Backend Service", "docker-compose.yml"),
         "CTRL-002": ("Overseer Bridge Network Isolation", "docker-compose.yml"),
-        "CTRL-003": ("Automated Full Stack Bootstrap", "scripts/bootstrap.sh"),
+        "CTRL-003": ("Automated Full Stack Bootstrap", "Makefile"),
         "CTRL-004": ("Ansible Semaphore Web UI and Orchestrator service", "docker-compose.yml"),
         "CTRL-005": ("Automated Semaphore Project and Template Seeding", "scripts/init-semaphore.sh"),
         "BAO-CTRL-001": ("OpenBao Server Initialization and Unseal", "openbao/config/openbao.hcl"),

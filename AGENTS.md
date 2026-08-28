@@ -58,8 +58,7 @@ overseer/
 │   │   └── worker.hcl         # Boundary Worker 설정 (Proxy, Worker-Auth)
 │   └── scripts/               # Boundary DB 초기화 및 타겟 구성 스크립트
 │
-└── scripts/                   # 중앙 부트스트랩 및 헬스체크
-    ├── bootstrap.sh           # 전체 스택 기동 및 초기화 자동화
+└── scripts/                   # 중앙 헬스체크 및 GitOps 시딩
     ├── init-semaphore.sh      # Semaphore UI GitOps 프로젝트/템플릿 자동 시딩
     ├── healthcheck.sh         # 각 컴포넌트 헬스체크
     └── validate-specs.py      # 3-Way Traceability 검증기

@@ -1,6 +1,6 @@
 # Overseer 3-Way Traceability Matrix (자동 생성)
 
-> **최종 검증 일시**: `2026-08-28 10:26:21`  
+> **최종 검증 일시**: `2026-08-28 10:38:19`  
 > **검증 상태**: `✅ 100% PASS`  
 > **스펙 총계**: `11` 개 (Control Plane: 11, Ansible: 0)
 
@@ -18,7 +18,7 @@
 | `BND-CTRL-003` | Control Plane | Boundary Worker Proxy Gateway | ✅ OK | ✅ `boundary/config/worker.hcl` | ✅ `Pytest E2E (test_03_boundary.py)` |
 | `CTRL-001` | Control Plane | PostgreSQL Database Backend Service | ✅ OK | ✅ `docker-compose.yml` | ✅ `Pytest E2E (test_01_control_plane.py)` |
 | `CTRL-002` | Control Plane | Overseer Bridge Network Isolation | ✅ OK | ✅ `docker-compose.yml` | ✅ `Pytest E2E (test_01_control_plane.py)` |
-| `CTRL-003` | Control Plane | Automated Full Stack Bootstrap | ✅ OK | ✅ `scripts/bootstrap.sh` | ✅ `Pytest E2E (test_01_control_plane.py)` |
+| `CTRL-003` | Control Plane | Automated Full Stack Bootstrap | ✅ OK | ✅ `Makefile` | ✅ `Pytest E2E (test_01_control_plane.py)` |
 | `CTRL-004` | Control Plane | Ansible Semaphore Web UI and Orchestrator service | ✅ OK | ✅ `docker-compose.yml` | ✅ `Pytest E2E (test_01_control_plane.py)` |
 | `CTRL-005` | Control Plane | Automated Semaphore Project and Template Seeding | ✅ OK | ✅ `scripts/init-semaphore.sh` | ✅ `Pytest E2E (test_01_control_plane.py)` |
 
