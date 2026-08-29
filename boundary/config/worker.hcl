@@ -26,6 +26,6 @@ listener "tcp" {
 kms "aead" {
   purpose   = "worker-auth"
   aead_type = "aes-gcm"
-  key       = "8pv7uU8g58aN8y1n8PqR8G3z7rW+V8eY9nQ2x3Z1v4U="
+  key       = "env://BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY"
   key_id    = "global_worker_auth"
 }

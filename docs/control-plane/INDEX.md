@@ -7,3 +7,4 @@
   - `CTRL-004` ~ `CTRL-005`: Semaphore UI & GitOps 자동화 시딩
   - `BAO-CTRL-001` ~ `BAO-CTRL-003`: OpenBao Server & SSH CA
   - `BND-CTRL-001` ~ `BND-CTRL-003`: Boundary Controller & Worker
+  - `ONBOARD-001` ~ `ONBOARD-002`: Greenfield & Brownfield Provisioning Onboarding

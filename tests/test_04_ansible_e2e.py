@@ -1,125 +1,65 @@
+"""
+E2E Test 04: Semaphore UI & GitOps Orchestration Architecture Test
+Verifies that Overseer Control Plane correctly configures Semaphore UI as the unified
+GitOps orchestrator, managing task templates, remote Git repository links, OpenBao CA mounts,
+and inventory blueprints without tightly coupling to internal Ansible role implementations.
+"""
+
 import os
 import yaml
 import pytest
 from pathlib import Path
 
-def test_ansible_inventory_and_vars(root_dir):
-    """Ansible 인벤토리 및 group_vars 파일 유효성 검증 (overseer / servers 그룹 격리)"""
-    node_prov_dir = (root_dir / "ansible") if (root_dir / "ansible").exists() else (root_dir.parent / "node-provisioner")
-    inv_file = node_prov_dir / "inventory" / "hosts.yml"
-    if not inv_file.exists():
-        inv_file = node_prov_dir / "inventory" / "hosts.yml.example"
-    assert inv_file.exists(), f"Inventory file missing in {node_prov_dir}"
-    
-    with open(inv_file, 'r', encoding='utf-8') as f:
-        inv_data = yaml.safe_load(f)
-    assert "all" in inv_data, "Inventory missing root 'all' key"
-    children = inv_data["all"].get("children", {})
-    assert "overseer" in children, "Missing 'overseer' group in inventory"
-    assert "servers" in children, "Missing 'servers' group in inventory"
-    
-    # group_vars 검증
-    all_vars_file = node_prov_dir / "inventory" / "group_vars" / "all.yml"
-    assert all_vars_file.exists(), "group_vars/all.yml is missing"
-    with open(all_vars_file, 'r', encoding='utf-8') as f:
-        all_vars = yaml.safe_load(f)
-    assert "admin_user" in all_vars, "admin_user is not defined in all.yml"
-    assert "timezone" in all_vars, "timezone is not defined in all.yml"
-    assert "otel_target_endpoint" in all_vars, "otel_target_endpoint is not defined in all.yml"
-
-    # overseer group_vars 검증
-    overseer_vars_file = node_prov_dir / "inventory" / "group_vars" / "overseer.yml"
-    assert overseer_vars_file.exists(), "group_vars/overseer.yml is missing"
-    with open(overseer_vars_file, 'r', encoding='utf-8') as f:
-        overseer_vars = yaml.safe_load(f)
-    assert "overseer_install_dir" in overseer_vars, "overseer_install_dir is not defined in overseer.yml"
-    assert "docker_metrics_enabled" in overseer_vars, "docker_metrics_enabled is not defined in overseer.yml"
-
-    # servers group_vars 검증
-    servers_vars_file = node_prov_dir / "inventory" / "group_vars" / "servers.yml"
-    assert servers_vars_file.exists(), "group_vars/servers.yml is missing"
-
-def test_ansible_execution_architecture(root_dir):
-    """Ansible 실행 아키텍처 및 Semaphore 통합 구조 검증 (GitOps 기반)"""
+def test_ctrl_004_semaphore_service_definition(root_dir):
+    """[CTRL-004] Semaphore UI container definition and PostgreSQL backend integration"""
     compose_file = root_dir / "docker-compose.yml"
     assert compose_file.exists(), "docker-compose.yml is missing"
     compose_content = compose_file.read_text(encoding="utf-8")
     
-    # 1. 상시 실행은 semaphore 서비스로 일원화
+    # 1. Semaphore 서비스 및 포트 정의 검증
     assert "semaphore:" in compose_content, "semaphore service must be defined in docker-compose.yml"
-    assert "image: semaphoreui/semaphore:latest" in compose_content, "Semaphore image must be configured"
+    assert "image: semaphoreui/semaphore:" in compose_content, "Semaphore image must be configured"
+    assert "3000:3000" in compose_content, "Semaphore port 3000 must be exposed"
+    assert "SEMAPHORE_DB_DIALECT: postgres" in compose_content, "Postgres dialect must be configured"
     
-    # 2. GitOps 데이터 볼륨 및 OpenBao CA 볼륨 마운트 검증
+    # 2. 전용 데이터 볼륨 및 OpenBao CA 마운트 검증
     assert "semaphore-data:/tmp/semaphore" in compose_content, "Semaphore must use dedicated data volume"
     assert "- ./openbao/data:/openbao/data:ro" in compose_content, "Semaphore must mount OpenBao data volume"
 
-def test_ansible_playbooks_structure(root_dir):
-    """Ansible 플레이북 분리 구조 검증"""
-    node_prov_dir = (root_dir / "ansible") if (root_dir / "ansible").exists() else (root_dir.parent / "node-provisioner")
-    playbooks_dir = node_prov_dir / "playbooks"
-    assert (playbooks_dir / "provision_overseer.yml").exists(), "provision_overseer.yml is missing"
-    assert (playbooks_dir / "provision_servers.yml").exists(), "provision_servers.yml is missing"
-    assert (playbooks_dir / "provision.yml").exists(), "provision.yml is missing"
-    assert (playbooks_dir / "maintenance.yml").exists(), "maintenance.yml is missing"
-    assert (playbooks_dir / "site.yml").exists(), "site.yml is missing"
-
-def test_ansible_roles_structure(root_dir):
-    """Ansible 신규 역할(docker_engine, overseer_control_plane) 구조 검증"""
-    node_prov_dir = (root_dir / "ansible") if (root_dir / "ansible").exists() else (root_dir.parent / "node-provisioner")
-    roles_dir = node_prov_dir / "roles"
-    expected_roles = ["docker_engine", "overseer_control_plane", "common", "security", "openbao_ssh_ca", "boundary_target", "monitoring"]
-    for role in expected_roles:
-        assert (roles_dir / role).exists(), f"Role {role} is missing"
-        assert (roles_dir / role / "tasks" / "main.yml").exists(), f"Role {role} main task file is missing"
-
-def test_monitoring_otel_system_logs(root_dir):
-    """모니터링 역할(monitoring)의 OTel 시스템 로그 수집 경로 검증 (ISMS/ISMS-P 커버리지)"""
-    node_prov_dir = (root_dir / "ansible") if (root_dir / "ansible").exists() else (root_dir.parent / "node-provisioner")
-    defaults_file = node_prov_dir / "roles" / "monitoring" / "defaults" / "main.yml"
-    assert defaults_file.exists(), "monitoring defaults/main.yml is missing"
-    with open(defaults_file, 'r', encoding='utf-8') as f:
-        defaults = yaml.safe_load(f)
-
-    assert "otel_system_logs" in defaults, "otel_system_logs should be defined in defaults"
-    logs = defaults["otel_system_logs"]
-
-    expected_logs = [
-        "/var/log/messages",
-        "/var/log/syslog",
-        "/var/log/secure",
-        "/var/log/auth.log",
-        "/var/log/sudo.log",
-        "/var/log/audit/audit.log",
-        "/var/log/cron*",
-        "/var/log/fail2ban.log",
-        "/var/log/dnf.log",
-        "/var/log/yum.log",
-        "/var/log/dpkg.log",
-        "/var/log/firewalld",
+def test_ctrl_005_gitops_seeding_contract(root_dir):
+    """[CTRL-005] Semaphore GitOps Project, Repository, and Task Templates Seeding Blueprint"""
+    init_script = root_dir / "scripts" / "init-semaphore.sh"
+    assert init_script.exists() and os.access(init_script, os.X_OK), "scripts/init-semaphore.sh is missing or not executable"
+    script_content = init_script.read_text(encoding="utf-8")
+    
+    # 1. 원격 GitOps 레포지토리 연동 검증
+    assert "ANSIBLE_REPO_URL" in script_content, "GitOps repository URL variable must be defined"
+    assert "Node Provisioner GitOps" in script_content, "GitOps repository name must be configured"
+    
+    # 2. 핵심 오케스트레이션 템플릿 계약 검증
+    expected_templates = [
+        "1. Provision Target Servers",
+        "2. Provision Overseer Control Plane",
+        "3. Provision Full Stack (All)",
+        "4. Regular Maintenance & Patching",
+        "5. Dry-Run Check & Diff (Simulation)",
     ]
-    for expected in expected_logs:
-        assert expected in logs, f"Expected log path {expected} missing from otel_system_logs"
+    for tpl in expected_templates:
+        assert tpl in script_content, f"Template '{tpl}' must be seeded by init-semaphore.sh"
+    
+    # 3. Dry-run 시뮬레이션 인자 검증
+    assert "--check --diff" in script_content, "Dry-run template must pass --check --diff"
 
-def test_monitoring_node_exporter_removed_and_hostmetrics_enabled(root_dir):
-    """Node Exporter 변수 및 설정 제거와 OTel hostmetrics receiver 활성화 상태 검증"""
-    node_prov_dir = (root_dir / "ansible") if (root_dir / "ansible").exists() else (root_dir.parent / "node-provisioner")
-    defaults_file = node_prov_dir / "roles" / "monitoring" / "defaults" / "main.yml"
-    with open(defaults_file, 'r', encoding='utf-8') as f:
-        defaults = yaml.safe_load(f)
+def test_semaphore_makefile_integration(root_dir):
+    """Semaphore start / stop / init lifecycle targets in Makefile"""
+    makefile = root_dir / "Makefile"
+    assert makefile.exists(), "Makefile is missing"
+    content = makefile.read_text(encoding="utf-8")
+    
+    assert "start-semaphore:" in content, "start-semaphore target missing in Makefile"
+    assert "init-semaphore:" in content, "init-semaphore target missing in Makefile"
+    assert "ensure-semaphore-db:" in content, "ensure-semaphore-db target missing in Makefile"
 
-    assert "node_exporter_version" not in defaults, "node_exporter_version should be completely removed"
-    assert "node_exporter_port" not in defaults, "node_exporter_port should be completely removed"
-    assert "otel_hostmetrics_interval" in defaults, "otel_hostmetrics_interval should be defined"
-    assert "otel_hostmetrics_scrapers" in defaults, "otel_hostmetrics_scrapers should be defined"
-    assert "cleanup_legacy_node_exporter" in defaults, "cleanup_legacy_node_exporter should be present"
-
-    # 템플릿 검증
-    template_file = node_prov_dir / "roles" / "monitoring" / "templates" / "otelcol-contrib.yaml.j2"
-    assert template_file.exists(), "otelcol-contrib template file is missing"
-    template_content = template_file.read_text(encoding='utf-8')
-    assert "node_exporter" not in template_content, "Template should not contain node_exporter references"
-    assert "hostmetrics:" in template_content, "Template must configure hostmetrics receiver"
-    assert "traces:" in template_content, "Template must configure traces pipeline"
 
 
 

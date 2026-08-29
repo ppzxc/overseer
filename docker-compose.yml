@@ -1,9 +1,10 @@
 services:
-  # 1. Database (PostgreSQL for Boundary)
+  # 1. Database (PostgreSQL for Boundary & Semaphore)
   postgres:
     image: postgres:15-alpine
     container_name: overseer-postgres
     restart: unless-stopped
+    shm_size: 256m
     deploy:
       resources:
         limits:
@@ -24,10 +25,15 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
 
   # 2. OpenBao Server
   openbao:
-    image: openbao/openbao:latest
+    image: openbao/openbao:2.1.0
     container_name: overseer-openbao
     restart: unless-stopped
     deploy:
@@ -51,6 +57,17 @@ services:
     entrypoint: ["bao", "server", "-config=/openbao/config/openbao.hcl"]
     networks:
       - overseer-net
+    healthcheck:
+      test: ["CMD", "bao", "status", "-address=http://127.0.0.1:8200"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
 
   # 3. HashiCorp Boundary Controller
   boundary-controller:
@@ -70,12 +87,21 @@ services:
     ports:
       - "9200:9200"
       - "9201:9201"
+    environment:
+      BOUNDARY_KMS_AEAD_ROOT_KEY: ${BOUNDARY_KMS_AEAD_ROOT_KEY:-sP191WKGvgcuEmhdREQBPBG5nhAAda4e+bQQnFRinCU=}
+      BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY: ${BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY:-8pv7uU8g58aN8y1n8PqR8G3z7rW+V8eY9nQ2x3Z1v4U=}
+      BOUNDARY_KMS_AEAD_RECOVERY_KEY: ${BOUNDARY_KMS_AEAD_RECOVERY_KEY:-uK382WKGvgcuEmhdREQBPBG5nhAAda4e+bQQnFRinCU=}
     volumes:
       - ./boundary/config:/boundary/config:ro
       - ./boundary/scripts:/boundary/scripts:ro
     command: ["boundary", "server", "-config=/boundary/config/controller.hcl"]
     networks:
       - overseer-net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
 
   # 4. HashiCorp Boundary Worker
   boundary-worker:
@@ -93,15 +119,22 @@ services:
       - boundary-controller
     ports:
       - "9202:9202"
+    environment:
+      BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY: ${BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY:-8pv7uU8g58aN8y1n8PqR8G3z7rW+V8eY9nQ2x3Z1v4U=}
     volumes:
       - ./boundary/config:/boundary/config:ro
     command: ["boundary", "server", "-config=/boundary/config/worker.hcl"]
     networks:
       - overseer-net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
 
   # 5. Semaphore UI (Ansible Web UI & Orchestrator)
   semaphore:
-    image: semaphoreui/semaphore:latest
+    image: semaphoreui/semaphore:v2.10.35
     container_name: overseer-semaphore
     restart: unless-stopped
     deploy:
@@ -136,6 +169,17 @@ services:
       - ~/.ssh:/root/.ssh:ro
     networks:
       - overseer-net
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 3000 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
 
 volumes:
   postgres-data:

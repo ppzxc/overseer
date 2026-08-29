@@ -19,3 +19,5 @@
 | `BND-CTRL-001` | `Boundary Controller Database and API` | `boundary/config/controller.hcl` | 포트 9200 API 및 PostgreSQL DB 마이그레이션 |
 | `BND-CTRL-002` | `Boundary Cluster Communications` | `boundary/config/controller.hcl` | 포트 9201 Controller 클러스터 통신 |
 | `BND-CTRL-003` | `Boundary Worker Proxy Gateway` | `boundary/config/worker.hcl` | 포트 9202 Worker 프록시 게이트웨이 |
+| `ONBOARD-001` | `Greenfield Server Baseline Provisioning Workflow` | `docs/PROVISIONING_AND_MIGRATION_GUIDELINE.md` | 신규 서버 베이스라인, SSH CA, Boundary 타겟 및 OTel Collector 단일 관제 통합 주입 |
+| `ONBOARD-002` | `Brownfield Legacy Server 3-Stage Migration and Lockout Safety` | `docs/PROVISIONING_AND_MIGRATION_GUIDELINE.md` | 활성 포트 사전 조사, 레거시 node_exporter 정리, SSH 접속 선검증 후 패스워드 차단 및 방화벽 활성화 |

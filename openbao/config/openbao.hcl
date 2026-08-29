@@ -3,8 +3,9 @@
 ui = true
 disable_mlock = true
 
-storage "file" {
-  path = "/openbao/data"
+storage "raft" {
+  path    = "/openbao/data"
+  node_id = "overseer-openbao-1"
 }
 
 # TCP 리스너 설정

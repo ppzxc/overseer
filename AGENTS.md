@@ -45,7 +45,8 @@ overseer/
 │   ├── test_01_control_plane.py
 │   ├── test_02_openbao_ssh_ca.py
 │   ├── test_03_boundary.py
-│   └── test_04_ansible_e2e.py
+│   ├── test_04_ansible_e2e.py
+│   └── test_05_provisioning_onboarding.py
 │
 ├── openbao/                   # OpenBao 오픈소스 시크릿/SSH CA 설정 & 초기화
 │   ├── config/openbao.hcl     # OpenBao 서버 설정 (File storage, TCP Listener, UI)

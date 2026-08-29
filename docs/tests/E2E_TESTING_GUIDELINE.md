@@ -29,6 +29,7 @@
 | `test_02_openbao_ssh_ca.py` | OpenBao Unseal 상태, SSH CA 공개키 생성 및 **실시간 SSH User Certificate 서명 발급** |
 | `test_03_boundary.py` | Boundary Controller 클러스터 포트(9201) 및 Worker 프록시 포트(9202) 정상 리스닝 |
 | `test_04_ansible_e2e.py` | Semaphore UI의 GitOps 원격 레포지토리 연동 및 환경 구성 검증 |
+| `test_05_provisioning_onboarding.py` | Greenfield(신규 OS 베이스라인 주입) 및 Brownfield(3단계 레거시 마이그레이션 & SSH 락아웃 방지) 온보딩 워크플로우 및 OS 호환성 검증 |
 
 ---
 

@@ -63,6 +63,8 @@ def extract_all_code_implementations():
         "BND-CTRL-001": ("Boundary Controller Database and API", "boundary/config/controller.hcl"),
         "BND-CTRL-002": ("Boundary Cluster Communications", "boundary/config/controller.hcl"),
         "BND-CTRL-003": ("Boundary Worker Proxy Gateway", "boundary/config/worker.hcl"),
+        "ONBOARD-001": ("Greenfield Server Baseline Provisioning Workflow", "docs/PROVISIONING_AND_MIGRATION_GUIDELINE.md"),
+        "ONBOARD-002": ("Brownfield Legacy Server 3-Stage Migration and Lockout Safety", "docs/PROVISIONING_AND_MIGRATION_GUIDELINE.md"),
     }
     for spec_id, (name, loc) in cp_mappings.items():
         if (ROOT_DIR / loc).exists():
