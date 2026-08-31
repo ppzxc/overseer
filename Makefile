@@ -1,4 +1,4 @@
-.PHONY: help up down restart status logs bootstrap \
+.PHONY: help up down restart status logs bootstrap preflight \
         start-openbao stop-openbao restart-openbao init-openbao \
         start-boundary stop-boundary restart-boundary init-boundary \
         start-semaphore stop-semaphore restart-semaphore init-semaphore \
@@ -10,6 +10,7 @@ help:
 	@echo "================================================================================"
 	@echo "                      Overseer Infrastructure Control Plane                     "
 	@echo "================================================================================"
+	@echo "  make preflight                - Run pre-flight checks (tools, permissions, ports)"
 	@echo "  make up / bootstrap           - Start & bootstrap all Control Plane components"
 	@echo "  make down                     - Stop all Control Plane components"
 	@echo "  make restart                  - Restart all Control Plane components"
@@ -45,6 +46,9 @@ ensure-semaphore-db: wait-postgres
 # ------------------------------------------------------------------------------
 # Full Stack (Unified)
 # ------------------------------------------------------------------------------
+preflight:
+	@./scripts/orchestrator.py preflight
+
 up bootstrap: env-file
 	@./scripts/orchestrator.py bootstrap
 

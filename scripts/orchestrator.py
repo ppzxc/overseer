@@ -37,6 +37,104 @@ def run_cmd(cmd, check=True, capture=False, env=None):
         env=full_env
     )
 
+def run_preflight_checks(exit_on_failure=True):
+    """
+    Validates host environment, non-root user permissions, required CLI utilities,
+    directory writeability, and port availability before running bootstrap.
+    """
+    import socket
+    print(f"\n{BOLD}{CYAN}================================================================================{RESET}")
+    print(f"{BOLD}{CYAN}      Overseer Control Plane Pre-Flight Prerequisites Validator         {RESET}")
+    print(f"{BOLD}{CYAN}================================================================================{RESET}\n")
+
+    checks = []
+
+    # 1. CLI Tools
+    for tool in ["docker", "jq", "curl", "make", "python3"]:
+        res = subprocess.run(f"command -v {tool}", shell=True, capture_output=True, text=True)
+        if res.returncode == 0:
+            checks.append(("CLI Tool", tool, True, res.stdout.strip(), ""))
+        else:
+            remediation = f"Install '{tool}' via package manager (e.g. sudo apt install -y {tool} or sudo dnf install -y {tool})"
+            checks.append(("CLI Tool", tool, False, "Not found in PATH", remediation))
+
+    # 2. Docker Compose v2 plugin
+    res_compose = subprocess.run("docker compose version", shell=True, capture_output=True, text=True)
+    if res_compose.returncode == 0:
+        checks.append(("Docker Plugin", "docker compose v2", True, res_compose.stdout.strip().splitlines()[0], ""))
+    else:
+        checks.append(("Docker Plugin", "docker compose v2", False, "docker compose v2 not available", "Install Docker Compose v2 plugin"))
+
+    # 3. Docker Non-Root User Permissions
+    res_dockersock = subprocess.run("docker info", shell=True, capture_output=True, text=True)
+    if res_dockersock.returncode == 0:
+        checks.append(("Permissions", "Docker Non-Root Access", True, "Docker daemon accessible without sudo", ""))
+    else:
+        err_msg = res_dockersock.stderr.strip().splitlines()
+        detail = err_msg[0] if err_msg else "Cannot connect to Docker daemon socket"
+        checks.append(("Permissions", "Docker Non-Root Access", False, detail, "Add user to docker group: sudo usermod -aG docker $USER && newgrp docker"))
+
+    # 4. Filesystem Directory Writeability
+    try:
+        openbao_data = ROOT_DIR / "openbao" / "data"
+        openbao_data.mkdir(parents=True, exist_ok=True)
+        test_file = openbao_data / ".preflight_tmp"
+        test_file.write_text("ok", encoding="utf-8")
+        test_file.unlink()
+        checks.append(("Filesystem", "OpenBao Data Directory", True, "Writable (./openbao/data)", ""))
+    except Exception as e:
+        checks.append(("Filesystem", "OpenBao Data Directory", False, str(e), "Fix permissions: sudo chmod -R 775 openbao/data && chown -R $USER:dockermgmt openbao/data"))
+
+    # 5. Port Availability & Conflicts
+    ports_to_check = [
+        (8200, "OpenBao Web / API"),
+        (9200, "Boundary Controller API"),
+        (9201, "Boundary Controller Cluster"),
+        (9202, "Boundary Worker Proxy"),
+        (3000, "Semaphore Web UI"),
+    ]
+    running_containers_res = subprocess.run("docker compose ps -q", shell=True, capture_output=True, text=True, cwd=str(ROOT_DIR))
+    overseer_containers_running = bool(running_containers_res.stdout.strip())
+
+    for port, service_desc in ports_to_check:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(0.5)
+        conn_res = sock.connect_ex(("127.0.0.1", port))
+        sock.close()
+        if conn_res == 0:
+            if overseer_containers_running:
+                checks.append(("Port Status", f"Port {port} ({service_desc})", True, "In use (Overseer active)", ""))
+            else:
+                checks.append(("Port Conflict", f"Port {port} ({service_desc})", False, "Already in use by foreign process", f"Stop conflicting service on port {port}"))
+        else:
+            checks.append(("Port Status", f"Port {port} ({service_desc})", True, "Available", ""))
+
+    # Print Table
+    print(f"{'Category':<15} | {'Check Item':<35} | {'Status':<6} | {'Details'}")
+    print("-" * 85)
+    all_passed = True
+    for cat, item, passed, detail, _ in checks:
+        status_str = f"{GREEN}PASS{RESET}" if passed else f"{RED}FAIL{RESET}"
+        if not passed:
+            all_passed = False
+        display_detail = detail[:34] + "..." if len(detail) > 34 else detail
+        print(f"{cat:<15} | {item:<35} | {status_str:<15} | {display_detail}")
+    print("-" * 85)
+
+    if not all_passed:
+        print(f"\n{BOLD}{RED}❌ Pre-flight validation failed! Bootstrap cancelled.{RESET}\n")
+        print(f"{BOLD}Remediation Steps:{RESET}")
+        for cat, item, passed, detail, remediation in checks:
+            if not passed and remediation:
+                print(f"  - [{item}]: {remediation}")
+        print()
+        if exit_on_failure:
+            sys.exit(1)
+        return False
+
+    print(f"\n{BOLD}{GREEN}✅ All Pre-flight checks passed! Proceeding...{RESET}\n")
+    return True
+
 def ensure_env_file():
     """Ensures .env exists from .env.example if missing."""
     env_file = ROOT_DIR / ".env"
@@ -92,6 +190,9 @@ def init_semaphore():
 
 def bootstrap():
     """Full end-to-end bootstrap of all Control Plane services."""
+    # 0. Pre-Flight Prerequisites Validation
+    run_preflight_checks(exit_on_failure=True)
+
     print(f"\n{BOLD}{CYAN}================================================================================{RESET}")
     print(f"{BOLD}{CYAN}           Overseer Control Plane Full-Stack Bootstrap Starting         {RESET}")
     print(f"{BOLD}{CYAN}================================================================================{RESET}\n")
@@ -149,12 +250,15 @@ def check_service_status():
 
 def main():
     parser = argparse.ArgumentParser(description="Overseer Control Plane Lifecycle Orchestrator")
-    parser.add_argument("action", choices=["bootstrap", "up", "status", "down", "init-openbao", "init-boundary", "init-semaphore"], help="Action to perform")
+    parser.add_argument("action", choices=["bootstrap", "up", "preflight", "status", "down", "init-openbao", "init-boundary", "init-semaphore"], help="Action to perform")
     
     args = parser.parse_args()
     
     if args.action in ["bootstrap", "up"]:
         bootstrap()
+    elif args.action == "preflight":
+        passed = run_preflight_checks(exit_on_failure=False)
+        sys.exit(0 if passed else 1)
     elif args.action == "status":
         sys.exit(check_service_status())
     elif args.action == "down":

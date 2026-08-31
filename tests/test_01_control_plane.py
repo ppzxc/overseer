@@ -32,7 +32,13 @@ def test_ctrl_003_bootstrap_workflow(root_dir):
     assert orchestrator.exists() and os.access(orchestrator, os.X_OK), "scripts/orchestrator.py is missing or not executable"
     makefile_content = makefile.read_text(encoding="utf-8")
     assert "up bootstrap:" in makefile_content or "bootstrap:" in makefile_content, "bootstrap target missing in Makefile"
+    assert "preflight" in makefile_content, "Makefile must have preflight target"
     assert "orchestrator.py" in makefile_content, "Makefile must delegate lifecycle tasks to orchestrator.py"
+
+    # Pre-flight check function verification
+    orch_content = orchestrator.read_text(encoding="utf-8")
+    assert "run_preflight_checks" in orch_content, "orchestrator.py must implement run_preflight_checks"
+    assert "docker compose version" in orch_content, "preflight must check docker compose version"
 
 def test_bao_ctrl_001_openbao_health(http_session, openbao_url):
     """[BAO-CTRL-001] OpenBao Server Initialization and Unseal status"""
