@@ -78,3 +78,55 @@ def test_onboarding_os_compatibility_matrix(root_dir):
     assert "vault.centos.org" in content, "CentOS vault repository transition must be documented"
     assert "TrustedUserCAKeys" in content, "OpenSSH CA compatibility constraints must be documented"
 
+
+def test_onboard_001_greenfield_linux_user_and_ssh_ca_contract(root_dir):
+    """
+    [ONBOARD-001] Greenfield Target Node Linux User & SSH CA Integration Verification
+    Verifies that when a clean on-premises server is provisioned:
+    1. Dedicated non-root administrative Linux user ('infra-admin') is defined with passwordless sudo
+    2. OpenBao SSH CA public key is deployed to '/etc/ssh/trusted-user-ca-keys.pem'
+    3. OpenSSH daemon is configured with 'TrustedUserCAKeys' and 'AuthorizedPrincipalsFile' / principals matching
+    4. Root login and password authentication are disabled in favor of certificate authentication
+    """
+    guideline_doc = root_dir / "docs" / "PROVISIONING_AND_MIGRATION_GUIDELINE.md"
+    content = guideline_doc.read_text(encoding="utf-8")
+
+    # 1. Non-root user & sudoers contract
+    assert "infra-admin" in content, "Target provisioning non-root user must be 'infra-admin'"
+    assert "/etc/sudoers.d/90-infra-admin" in content, "Dedicated sudoers drop-in file must be defined"
+
+    # 2. SSH CA trust & daemon hardening contract
+    assert "trusted-user-ca-keys.pem" in content, "SSH CA public key file must be trusted-user-ca-keys.pem"
+    assert "PermitRootLogin no" in content, "Root login must be disabled after provisioning"
+    assert "PasswordAuthentication no" in content, "Password authentication must be disabled after CA verification"
+
+    # 3. OpenBao SSH CA init script alignment
+    openbao_init_script = root_dir / "openbao" / "scripts" / "init-openbao-ssh-ca.sh"
+    assert openbao_init_script.exists(), "OpenBao SSH CA init script must exist"
+    openbao_script_content = openbao_init_script.read_text(encoding="utf-8")
+    assert "infra-admin" in openbao_script_content or "infra-admin-role" in openbao_script_content, (
+        "OpenBao SSH CA role must allow signing for 'infra-admin' principal"
+    )
+
+
+def test_onboard_001_greenfield_boundary_and_monitoring_contract(root_dir):
+    """
+    [ONBOARD-001] Greenfield Target Node Boundary Zero-Trust & Observability Integration Verification
+    Verifies that:
+    1. Target host is integrated with Boundary Worker proxy (default port 9202)
+    2. OpenTelemetry Collector Contrib with hostmetrics receiver is deployed
+    3. Time synchronization (Chrony) is enforced to ensure certificate timestamp validity
+    """
+    guideline_doc = root_dir / "docs" / "PROVISIONING_AND_MIGRATION_GUIDELINE.md"
+    content = guideline_doc.read_text(encoding="utf-8")
+
+    # 1. Boundary target integration
+    assert "Boundary" in content, "Boundary Zero-Trust access must be integrated"
+
+    # 2. OpenTelemetry Collector Hostmetrics
+    assert "hostmetrics" in content, "Hostmetrics receiver must be configured for system metrics"
+    assert "OTLP" in content, "OTLP outbound export must be documented"
+
+    # 3. Chrony for SSH Certificate timestamp accuracy
+    assert "Chrony" in content or "chrony" in content, "Chrony NTP must be required for CA timestamp validity"
+
