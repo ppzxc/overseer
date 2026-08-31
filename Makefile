@@ -45,17 +45,8 @@ ensure-semaphore-db: wait-postgres
 # ------------------------------------------------------------------------------
 # Full Stack (Unified)
 # ------------------------------------------------------------------------------
-up bootstrap: env-file init-postgres ensure-semaphore-db init-boundary init-openbao
-	@echo "[*] Launching remaining services (Boundary & Semaphore)..."
-	@docker compose up -d boundary-controller boundary-worker semaphore
-	@$(MAKE) init-semaphore
-	@echo ""
-	@echo "================================================================================"
-	@echo "  Overseer Control Plane is UP and READY!"
-	@echo "  - OpenBao Web UI:     http://localhost:8200"
-	@echo "  - Boundary Admin UI:  http://localhost:9200"
-	@echo "  - Semaphore Web UI:   http://localhost:3000 (admin / semaphoreadmin)"
-	@echo "================================================================================"
+up bootstrap: env-file
+	@./scripts/orchestrator.py bootstrap
 
 down:
 	@docker compose down
@@ -64,7 +55,7 @@ restart:
 	@docker compose restart
 
 status:
-	@./scripts/healthcheck.sh
+	@./scripts/orchestrator.py status
 
 logs:
 	@docker compose logs -f
@@ -74,7 +65,7 @@ logs:
 # ------------------------------------------------------------------------------
 start-openbao: env-file
 	@docker compose up -d openbao
-	@$(MAKE) init-openbao
+	@./scripts/orchestrator.py init-openbao
 
 stop-openbao:
 	@docker compose stop openbao
@@ -83,9 +74,7 @@ restart-openbao:
 	@docker compose restart openbao
 
 init-openbao: env-file
-	@docker compose up -d openbao
-	@until curl -s "http://127.0.0.1:8200/v1/sys/health" >/dev/null 2>&1 || [ $$? -eq 2 ]; do sleep 2; done
-	@docker compose exec -T openbao /bin/sh /openbao/scripts/init-openbao-ssh-ca.sh || true
+	@./scripts/orchestrator.py init-openbao
 
 # ------------------------------------------------------------------------------
 # Boundary
@@ -100,14 +89,14 @@ restart-boundary:
 	@docker compose restart boundary-controller boundary-worker
 
 init-boundary: env-file init-postgres
-	@docker compose run --rm --entrypoint /bin/sh boundary-controller -c "/boundary/scripts/init-boundary.sh" || true
+	@./scripts/orchestrator.py init-boundary
 
 # ------------------------------------------------------------------------------
 # Semaphore
 # ------------------------------------------------------------------------------
 start-semaphore: env-file init-postgres ensure-semaphore-db
 	@docker compose up -d semaphore
-	@$(MAKE) init-semaphore
+	@./scripts/orchestrator.py init-semaphore
 
 stop-semaphore:
 	@docker compose stop semaphore
@@ -116,7 +105,7 @@ restart-semaphore:
 	@docker compose restart semaphore
 
 init-semaphore: env-file
-	@./scripts/init-semaphore.sh || true
+	@./scripts/orchestrator.py init-semaphore
 
 # ------------------------------------------------------------------------------
 # PostgreSQL

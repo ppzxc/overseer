@@ -27,11 +27,12 @@ def test_ctrl_002_network_and_orchestration(root_dir):
 def test_ctrl_003_bootstrap_workflow(root_dir):
     """[CTRL-003] Automated Full Stack Bootstrap script existence and executable"""
     makefile = root_dir / "Makefile"
-    healthcheck = root_dir / "scripts" / "healthcheck.sh"
+    orchestrator = root_dir / "scripts" / "orchestrator.py"
     assert makefile.exists(), "Makefile is missing"
-    assert healthcheck.exists() and os.access(healthcheck, os.X_OK), "scripts/healthcheck.sh is missing or not executable"
+    assert orchestrator.exists() and os.access(orchestrator, os.X_OK), "scripts/orchestrator.py is missing or not executable"
     makefile_content = makefile.read_text(encoding="utf-8")
     assert "up bootstrap:" in makefile_content or "bootstrap:" in makefile_content, "bootstrap target missing in Makefile"
+    assert "orchestrator.py" in makefile_content, "Makefile must delegate lifecycle tasks to orchestrator.py"
 
 def test_bao_ctrl_001_openbao_health(http_session, openbao_url):
     """[BAO-CTRL-001] OpenBao Server Initialization and Unseal status"""
