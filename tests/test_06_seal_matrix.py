@@ -86,10 +86,19 @@ def test_ctrl_007_orchestrator_seal_and_port_branching(root_dir):
     assert 'storage "raft"' in active_openbao
     assert 'seal "gcpckms"' not in active_openbao
     
+    # Check compose.override.yml exists and has 0.0.0.0 bindings
+    override_file = root_dir / "compose.override.yml"
+    assert override_file.exists(), "compose.override.yml should be generated when EXPOSE_PORTS=true"
+    override_content = override_file.read_text(encoding="utf-8")
+    assert "0.0.0.0:8200:8200" in override_content
+    assert "0.0.0.0:3000:3000" in override_content
+    
     env_content = (root_dir / ".env").read_text(encoding="utf-8")
-    assert "OPENBAO_PORT_BINDING=8200:8200" in env_content
-    assert "SEMAPHORE_PORT_BINDING=3000:3000" in env_content
+    assert "OPENBAO_PORT_BINDING=0.0.0.0:8200:8200" in env_content
+    assert "SEMAPHORE_PORT_BINDING=0.0.0.0:3000:3000" in env_content
     assert "OPENBAO_SHAMIR_MODE=auto" in env_content
+    # When SEAL_TYPE=local, GCP keys should remain commented
+    assert "# GCP_PROJECT=" in env_content
     
     # 2. Test GCP Cloud KMS + Internal Ports + Manual Shamir
     os.environ["SEAL_TYPE"] = "gcpkms"
@@ -114,10 +123,16 @@ def test_ctrl_007_orchestrator_seal_and_port_branching(root_dir):
     assert 'seal "gcpckms"' in active_openbao_gcp
     assert 'project     = "test-proj"' in active_openbao_gcp
     
+    # When EXPOSE_PORTS=false, compose.override.yml should be deleted
+    assert not override_file.exists(), "compose.override.yml should be removed when EXPOSE_PORTS=false"
+    
     env_content_internal = (root_dir / ".env").read_text(encoding="utf-8")
     assert "EXPOSE_PORTS=false" in env_content_internal
-    assert "OPENBAO_PORT_BINDING=127.0.0.1::8200" in env_content_internal
+    # When ports are not exposed, port binding variables should be commented out
+    assert "# OPENBAO_PORT_BINDING=" in env_content_internal
     assert "OPENBAO_SHAMIR_MODE=manual" in env_content_internal
+    # When SEAL_TYPE=gcpkms, GCP keys should be uncommented
+    assert "GCP_PROJECT=test-proj" in env_content_internal
     
     # Revert back to local + exposed for standard testing
     os.environ["SEAL_TYPE"] = "local"

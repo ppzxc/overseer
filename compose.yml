@@ -45,8 +45,6 @@ services:
           memory: 128M
     cap_add:
       - IPC_LOCK
-    ports:
-      - "${OPENBAO_PORT_BINDING:-8200:8200}"
     environment:
       BAO_ADDR: "http://0.0.0.0:8200"
       BAO_API_ADDR: "http://127.0.0.1:8200"
@@ -86,9 +84,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    ports:
-      - "${BOUNDARY_CONTROLLER_API_PORT:-9200:9200}"
-      - "${BOUNDARY_CONTROLLER_CLUSTER_PORT:-9201:9201}"
     environment:
       BOUNDARY_POSTGRES_URL: ${BOUNDARY_POSTGRES_URL:-postgresql://${POSTGRES_USER:-boundary}:${POSTGRES_PASSWORD:-boundarypassword}@postgres:5432/${POSTGRES_DB:-boundary}?sslmode=disable}
       BOUNDARY_KMS_AEAD_ROOT_KEY: ${BOUNDARY_KMS_AEAD_ROOT_KEY:-}
@@ -122,8 +117,6 @@ services:
           memory: 256M
     depends_on:
       - boundary-controller
-    ports:
-      - "${BOUNDARY_WORKER_PROXY_PORT:-9202:9202}"
     environment:
       BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY: ${BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY:-}
       GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS:-}
@@ -154,8 +147,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    ports:
-      - "${SEMAPHORE_PORT_BINDING:-3000:3000}"
     environment:
       SEMAPHORE_DB_DIALECT: postgres
       SEMAPHORE_DB_HOST: postgres
