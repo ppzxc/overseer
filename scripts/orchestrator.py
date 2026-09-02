@@ -241,6 +241,7 @@ def set_env_var(key: str, value: str, uncomment: bool = True):
     new_lines = []
     found = False
     
+    formatted_line = f"{key}={value}" if uncomment else f"# {key}={value}"
     target_active_prefix = f"{key}="
     target_comment_prefix = f"# {key}="
     target_comment_noprefix = f"#{key}="
@@ -249,24 +250,16 @@ def set_env_var(key: str, value: str, uncomment: bool = True):
         stripped = l.strip()
         if stripped.startswith(target_active_prefix) or stripped.startswith(target_comment_prefix) or stripped.startswith(target_comment_noprefix):
             found = True
-            if uncomment:
-                new_lines.append(f"{key}={value}")
-            else:
-                new_lines.append(f"# {key}={value}")
+            new_lines.append(formatted_line)
         else:
             new_lines.append(l)
             
     if not found:
-        if uncomment:
-            new_lines.append(f"{key}={value}")
-        else:
-            new_lines.append(f"# {key}={value}")
+        new_lines.append(formatted_line)
             
     env_file.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
     if uncomment:
         os.environ[key] = str(value)
-    elif key in os.environ:
-        del os.environ[key]
 
 def configure_port_binding(expose_ports=True):
     """
@@ -407,12 +400,9 @@ def prompt_and_configure_all(interactive=True):
         ("GCP_BOUNDARY_RECOVERY_KEY", os.getenv("GCP_BOUNDARY_RECOVERY_KEY", "boundary-recovery-key")),
         ("GOOGLE_APPLICATION_CREDENTIALS", os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "")),
     ]
-    if seal_type == "gcpkms":
-        for k, v in gcp_keys:
-            set_env_var(k, v, uncomment=True)
-    else:
-        for k, v in gcp_keys:
-            set_env_var(k, v, uncomment=False)
+    is_gcp = (seal_type == "gcpkms")
+    for k, v in gcp_keys:
+        set_env_var(k, v, uncomment=is_gcp)
     
     # Read .env to memory
     env_vars = {}

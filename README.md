@@ -1,6 +1,6 @@
 # Overseer: IDC Infrastructure Zero-Trust Control Plane
 
-**Overseer**는 소-중규모 IDC 온프레미스 인프라 환경의 중앙 제어 플레인(OpenBao, HashiCorp Boundary, Semaphore UI, PostgreSQL)을 일괄 오케스트레이션하고, 독립된 Ansible GitOps 저장소(`node-provisioner`)를 통해 온프레미스 노드 프로비저닝을 제어하는 Docker Compose 기반 중앙 컨트롤 플레인입니다.
+**Overseer**는 소-중규모 IDC 온프레미스 인프라 환경의 중앙 제어 플레인(OpenBao v2.6.2, HashiCorp Boundary 0.21.3, Semaphore UI v2.19.12, PostgreSQL 15)을 일괄 오케스트레이션하고, 독립된 Ansible GitOps 저장소(`node-provisioner`)를 통해 온프레미스 노드 프로비저닝을 제어하는 Docker Compose 기반 중앙 컨트롤 플레인입니다.
 
 ---
 
@@ -11,13 +11,13 @@
 │                    Overseer Central Control Plane (Docker Compose)          │
 │                                                                             │
 │  ┌──────────────────┐    ┌──────────────────┐    ┌───────────────────────┐  │
-│  │     OpenBao      │    │     Boundary     │    │ Semaphore UI (Web UI) │  │
-│  │ (SSH CA, Secrets)│    │ (Zero-Trust IAM) │    │ & GitOps Orchestrator │  │
+│  │ OpenBao (v2.6.2) │    │ Boundary(0.21.3) │    │ Semaphore (v2.19.12)  │  │
+│  │ (SSH CA, Web UI) │    │ (Zero-Trust IAM) │    │ & GitOps Orchestrator │  │
 │  │ [Shamir / GCP-KMS│    │ [AEAD / GCP-KMS] │    └───────────▲───────────┘  │
 │  └────────┬─────────┘    └────────┬─────────┘                │              │
 │           │                       │                          │              │
 │           └──────────────┬────────▼──────────────────────────┴───────────┐  │
-│                          │     PostgreSQL (Boundary & Semaphore DB)      │  │
+│                          │     PostgreSQL 15 (Boundary & Semaphore DB)   │  │
 │                          └───────────────────────────────────────────────┘  │
 └──────────────────────────────────────┬──────────────────────────────────────┘
                                        │
@@ -33,10 +33,10 @@
 
 ## 2. 빠른 시작 (Quick Start)
 
-### 0) 로컬 환경 설정 (Git 분리 및 격리)
-시크릿 및 설정 정보는 Git에 커밋되지 않고 `.gitignore`로 격리됩니다.
+### 0) 로컬 환경 설정 및 점진적 환경변수 활성화 (Lazy Lifecycle)
+`.env.example` 템플릿에는 사용하지 않는 옵션 변수(포트 바인딩, GCP Cloud KMS 등)가 기본 주석(`#`) 처리되어 있으며, `make bootstrap` 단계에서 선택한 모드에 따라 필요한 변수만 주석이 해제(`uncomment`)되고 난수 암호화 키가 자동 주입됩니다.
 ```bash
-# 컨트롤 플레인 환경변수 템플릿 복사 및 설정 (SEAL_TYPE: local 또는 gcpkms 선택 가능)
+# 컨트롤 플레인 환경변수 템플릿 복사
 cp .env.example .env
 ```
 
@@ -62,9 +62,12 @@ make start-semaphore  # Semaphore만 기동 및 GitOps 템플릿 시딩
 make stop-boundary    # Boundary 컨테이너 중지
 ```
 
-- **OpenBao Web UI**: [http://localhost:8200](http://localhost:8200)
-- **Boundary Admin UI**: [http://localhost:9200](http://localhost:9200)
-- **Semaphore Ansible Web UI**: [http://localhost:3000](http://localhost:3000) (초기 계정: `admin` / `semaphoreadmin`)
+#### 호스트 포트 바인딩 모드:
+- **호스트 노출 모드 (`EXPOSE_PORTS=true`, 기본값)**: `compose.override.yml`이 동적 생성되어 호스트 `0.0.0.0` 인터페이스에 서비스 포트와 1:1 일치하는 포트 매핑을 바인딩합니다.
+  - **OpenBao Web UI / API**: `0.0.0.0:8200:8200` ([http://localhost:8200](http://localhost:8200))
+  - **Boundary Admin UI / API**: `0.0.0.0:9200:9200` ([http://localhost:9200](http://localhost:9200)), Cluster: `9201`, Worker: `9202`
+  - **Semaphore Ansible Web UI**: `0.0.0.0:3000:3000` ([http://localhost:3000](http://localhost:3000), 초기 계정: `admin` / `semaphoreadmin`)
+- **내부망 전용 모드 (`EXPOSE_PORTS=false`)**: `compose.override.yml`이 제외되어 호스트 포트가 전혀 노출되지 않으며, `backend` 브릿지 네트워크로만 안전하게 통신합니다.
 
 ### 2) 온프레미스 대상 서버 프로비저닝 실행
 - **Semaphore Web UI 접속**: [http://localhost:3000](http://localhost:3000)
@@ -88,8 +91,9 @@ overseer/
 ├── AGENTS.md                  # AI 및 엔지니어 협업 가이드
 ├── CONTEXT.md                 # Overseer 도메인 컨텍스트
 ├── README.md                  # 본 문서
-├── compose.yml                # OpenBao, Boundary, Semaphore, Postgres 일괄 기동
-├── .env.example               # 환경 변수 템플릿 (SEAL_TYPE 및 GCP KMS 매개변수 포함)
+├── compose.yml                # 기본 컨트롤 플레인 정의 (포트 미노출 베이스라인)
+├── compose.override.yml       # [동적 생성] 0.0.0.0 1:1 호스트 포트 바인딩 오버라이드
+├── .env.example               # 점진적 주석 해제 지원 환경 변수 템플릿
 ├── Makefile                   # 원클릭 통합 제어 인터페이스 (make bootstrap, status 등)
 │
 ├── docs/                      # [전역 문서 저장소]
@@ -115,7 +119,7 @@ overseer/
 │   ├── config/profiles/       # Controller / Worker Local AEAD 및 GCP KMS 프로파일
 │   └── scripts/               # Boundary DB 초기화 스크립트
 └── scripts/                   # 중앙 헬스체크 및 GitOps 시딩
-    ├── orchestrator.py        # 통합 라이프사이클 및 SEAL 프로파일 주입 오케스트레이터
+    ├── orchestrator.py        # 통합 라이프사이클 및 SEAL/Port/Env 주입 오케스트레이터
     ├── init-semaphore.sh      # Semaphore UI GitOps 자동 시딩
     └── validate-specs.py      # 3-Way Traceability 검증기
 ```
@@ -127,5 +131,6 @@ overseer/
 - 🧪 [3-Way Traceability 매트릭스 리포트](file:///home/ppzxc/projects/overseer/docs/tests/TRACEABILITY_MATRIX.md)
 - 🔐 [컨트롤 플레인 스펙 (`docs/control-plane/`)](file:///home/ppzxc/projects/overseer/docs/control-plane/INDEX.md)
 - 🏛️ [ADR-0005: Pluggable Seal/Unseal Backend Profiles](file:///home/ppzxc/projects/overseer/docs/adr/0005-pluggable-seal-unseal-backend-profiles.md)
+- 🏛️ [ADR-0006: Modular 1:1 Host Port Binding and Lazy .env Variable Lifecycle](file:///home/ppzxc/projects/overseer/docs/adr/0006-compose-override-port-binding-and-env-lifecycle.md)
 - 🧪 [E2E 시스템 통합 테스트 가이드](file:///home/ppzxc/projects/overseer/docs/tests/E2E_TESTING_GUIDELINE.md)
 - 🌐 [Node-Provisioner Ansible GitOps 저장소](https://github.com/ppzxc/node-provisioner)
