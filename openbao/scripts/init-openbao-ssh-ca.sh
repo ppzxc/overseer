@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/sh
 set -e
 
 # ==============================================================================
@@ -15,8 +15,8 @@ SHAMIR_MODE="${OPENBAO_SHAMIR_MODE:-auto}"
 
 echo "[*] Connecting to OpenBao at ${BAO_ADDR}..."
 
-# OpenBao 준비 대기 (Status 0=unsealed, 2=sealed)
-until curl -s "${BAO_ADDR}/v1/sys/health" >/dev/null 2>&1 || [ $? -eq 2 ]; do
+# OpenBao 준비 대기 (OpenBao HTTP API 응답 대기 - 200, 501 uninit, 503 sealed 등)
+until curl -s -o /dev/null "${BAO_ADDR}/v1/sys/init"; do
     echo "[-] Waiting for OpenBao server to start..."
     sleep 2
 done
