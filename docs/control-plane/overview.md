@@ -8,10 +8,10 @@
 
 | Spec ID | 컴포넌트 / 태스크 명칭 (Task Name) | 구현 위치 (Implementation) | 검증 대상 (Verification Scope) |
 |---|---|---|---|
-| `CTRL-001` | `PostgreSQL Database Backend Service` | `docker-compose.yml` | 포트 5432 리스닝 및 pg_isready 헬스체크 |
-| `CTRL-002` | `Overseer Bridge Network Isolation` | `docker-compose.yml` | overseer-net 브릿지 네트워크 격리 |
+| `CTRL-001` | `PostgreSQL Database Backend Service` | `compose.yml` | 포트 5432 리스닝 및 pg_isready 헬스체크 |
+| `CTRL-002` | `Overseer Bridge Network Isolation` | `compose.yml` | overseer-net 브릿지 네트워크 격리 |
 | `CTRL-003` | `Automated Full Stack Bootstrap` | `Makefile` | 원클릭 일괄 기동 및 헬스 대기 워크플로우 (`make up`, `make bootstrap`) |
-| `CTRL-004` | `Ansible Semaphore Web UI and Orchestrator service` | `docker-compose.yml` | 포트 3000 Semaphore Web UI 및 PostgreSQL 백엔드 연동 |
+| `CTRL-004` | `Ansible Semaphore Web UI and Orchestrator service` | `compose.yml` | 포트 3000 Semaphore Web UI 및 PostgreSQL 백엔드 연동 |
 | `CTRL-005` | `Automated Semaphore Project and Template Seeding` | `scripts/init-semaphore.sh` | Semaphore REST API 기반 프로젝트/인벤토리/플레이북 템플릿 자동 프로비저닝 |
 | `BAO-CTRL-001` | `OpenBao Server Initialization and Unseal` | `openbao/config/openbao.hcl` | 포트 8200 HTTP API 및 unseal 상태 |
 | `BAO-CTRL-002` | `OpenBao SSH CA Secrets Engine Mount` | `openbao/scripts/init-openbao-ssh-ca.sh` | ssh-client-signer 마운트 및 CA 공개키 생성 |

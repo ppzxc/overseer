@@ -82,7 +82,7 @@ overseer/
 ├── AGENTS.md                  # AI 및 엔지니어 협업 가이드
 ├── CONTEXT.md                 # Overseer 도메인 컨텍스트
 ├── README.md                  # 본 문서
-├── docker-compose.yml         # OpenBao, Boundary, Semaphore, Postgres 일괄 기동
+├── compose.yml                # OpenBao, Boundary, Semaphore, Postgres 일괄 기동
 ├── .env.example               # 환경 변수 템플릿
 ├── Makefile                   # 원클릭 통합 제어 인터페이스 (make bootstrap, status 등)
 │

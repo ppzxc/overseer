@@ -10,9 +10,33 @@ import sys
 import time
 import subprocess
 import argparse
+import base64
+import secrets
+import string
 from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
+
+def get_configured_data_dir():
+    """Reads DATA_DIR from .env or defaults to /data."""
+    env_file = ROOT_DIR / ".env"
+    if env_file.exists():
+        for line in env_file.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line.startswith("DATA_DIR="):
+                val = line.split("=", 1)[1].strip().strip('"').strip("'")
+                if val:
+                    return Path(val).resolve() if not val.startswith("/") else Path(val)
+    return Path("/data")
+
+def generate_base64_key(bytes_len=32):
+    """Generates a cryptographically secure Base64-encoded key."""
+    return base64.b64encode(secrets.token_bytes(bytes_len)).decode("utf-8")
+
+def generate_random_password(length=16):
+    """Generates a cryptographically secure random alphanumeric password."""
+    alphabet = string.ascii_letters + string.digits
+    return "".join(secrets.choice(alphabet) for _ in range(length))
 
 # ANSI Colors
 GREEN = "\033[92m"
@@ -74,16 +98,20 @@ def run_preflight_checks(exit_on_failure=True):
         detail = err_msg[0] if err_msg else "Cannot connect to Docker daemon socket"
         checks.append(("Permissions", "Docker Non-Root Access", False, detail, "Add user to docker group: sudo usermod -aG docker $USER && newgrp docker"))
 
-    # 4. Filesystem Directory Writeability
+    # 4. Filesystem Directory Writeability for Centralized DATA_DIR (/data)
+    data_dir = get_configured_data_dir()
+    required_subs = ["postgres", "openbao", "semaphore", "boundary"]
     try:
-        openbao_data = ROOT_DIR / "openbao" / "data"
-        openbao_data.mkdir(parents=True, exist_ok=True)
-        test_file = openbao_data / ".preflight_tmp"
+        data_dir.mkdir(parents=True, exist_ok=True)
+        for sub in required_subs:
+            (data_dir / sub).mkdir(parents=True, exist_ok=True)
+        test_file = data_dir / ".preflight_tmp"
         test_file.write_text("ok", encoding="utf-8")
         test_file.unlink()
-        checks.append(("Filesystem", "OpenBao Data Directory", True, "Writable (./openbao/data)", ""))
+        checks.append(("Filesystem", f"Data Dir ({data_dir})", True, f"Writable ({data_dir}/...)", ""))
     except Exception as e:
-        checks.append(("Filesystem", "OpenBao Data Directory", False, str(e), "Fix permissions: sudo chmod -R 775 openbao/data && chown -R $USER:dockermgmt openbao/data"))
+        remediation = f"Fix permissions: sudo mkdir -p {data_dir}/{{{','.join(required_subs)}}} && sudo chown -R $USER:dockermgmt {data_dir} && sudo chmod -R 775 {data_dir} (or set DATA_DIR=./data in .env for local testing)"
+        checks.append(("Filesystem", f"Data Dir ({data_dir})", False, str(e), remediation))
 
     # 5. Port Availability & Conflicts
     ports_to_check = [
@@ -136,12 +164,32 @@ def run_preflight_checks(exit_on_failure=True):
     return True
 
 def ensure_env_file():
-    """Ensures .env exists from .env.example if missing."""
+    """Ensures .env exists from .env.example with newly generated secure random keys."""
     env_file = ROOT_DIR / ".env"
     example = ROOT_DIR / ".env.example"
     if not env_file.exists() and example.exists():
-        print(f"{CYAN}[*] Creating .env from .env.example...{RESET}")
-        env_file.write_text(example.read_text(encoding="utf-8"), encoding="utf-8")
+        print(f"{CYAN}[*] Generating fresh .env with unique cryptographic keys...{RESET}")
+        content = example.read_text(encoding="utf-8")
+        
+        # Cryptographically secure random keys & passwords
+        pg_pass = generate_random_password(18)
+        sem_pass = generate_random_password(18)
+        bnd_root = generate_base64_key(32)
+        bnd_worker = generate_base64_key(32)
+        bnd_rec = generate_base64_key(32)
+        sem_enc = generate_base64_key(32)
+        
+        # Replace default placeholder credentials
+        content = content.replace("POSTGRES_PASSWORD=boundarypassword", f"POSTGRES_PASSWORD={pg_pass}")
+        content = content.replace("postgresql://boundary:boundarypassword@", f"postgresql://boundary:{pg_pass}@")
+        content = content.replace("BOUNDARY_KMS_AEAD_ROOT_KEY=sP191WKGvgcuEmhdREQBPBG5nhAAda4e+bQQnFRinCU=", f"BOUNDARY_KMS_AEAD_ROOT_KEY={bnd_root}")
+        content = content.replace("BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY=8pv7uU8g58aN8y1n8PqR8G3z7rW+V8eY9nQ2x3Z1v4U=", f"BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY={bnd_worker}")
+        content = content.replace("BOUNDARY_KMS_AEAD_RECOVERY_KEY=uK382WKGvgcuEmhdREQBPBG5nhAAda4e+bQQnFRinCU=", f"BOUNDARY_KMS_AEAD_RECOVERY_KEY={bnd_rec}")
+        content = content.replace("SEMAPHORE_ADMIN_PASSWORD=semaphoreadmin", f"SEMAPHORE_ADMIN_PASSWORD={sem_pass}")
+        content = content.replace("SEMAPHORE_ACCESS_KEY_ENCRYPTION=GS3py5Y8+GvF12x0fTfR18k2h4eE9W2d1C8N6Q8T4=0", f"SEMAPHORE_ACCESS_KEY_ENCRYPTION={sem_enc}")
+        
+        env_file.write_text(content, encoding="utf-8")
+        print(f"{GREEN}[+] Fresh .env created with newly generated 32-byte KMS/encryption keys and passwords.{RESET}")
 
 def check_postgres_ready(timeout=30):
     """Waits for PostgreSQL to accept connections."""

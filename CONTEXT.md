@@ -10,7 +10,7 @@
 - **Multi-OS Support**: Provisioning and management support across RHEL/CentOS generations (CentOS 6 to Rocky Linux 9/10) as well as Debian/Ubuntu.
 
 ## 3. System Boundaries
-- `docker-compose.yml`: Top-level orchestration for all control plane containers (OpenBao, Boundary, Semaphore, PostgreSQL).
+- `compose.yml`: Top-level orchestration for all control plane containers (OpenBao, Boundary, Semaphore, PostgreSQL).
 - `docs/`: Unified documentation repository containing control plane specifications and ADRs (`docs/adr/`).
 - `openbao/` & `boundary/`: Service-specific configuration files and bootstrap/init scripts.
 - `scripts/`: Bootstrap, healthcheck, specification verification, and Semaphore auto-seeding automation.

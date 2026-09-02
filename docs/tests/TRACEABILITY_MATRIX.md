@@ -1,6 +1,6 @@
 # Overseer 3-Way Traceability Matrix (자동 생성)
 
-> **최종 검증 일시**: `2026-08-31 14:22:58`  
+> **최종 검증 일시**: `2026-09-02 13:57:59`  
 > **검증 상태**: `✅ 100% PASS`  
 > **스펙 총계**: `13` 개 (Control Plane: 13, Ansible: 0)
 
@@ -16,10 +16,10 @@
 | `BND-CTRL-001` | Control Plane | Boundary Controller Database and API | ✅ OK | ✅ `boundary/config/controller.hcl` | ✅ `Pytest E2E (test_01_control_plane.py)` |
 | `BND-CTRL-002` | Control Plane | Boundary Cluster Communications | ✅ OK | ✅ `boundary/config/controller.hcl` | ✅ `Pytest E2E (test_03_boundary.py)` |
 | `BND-CTRL-003` | Control Plane | Boundary Worker Proxy Gateway | ✅ OK | ✅ `boundary/config/worker.hcl` | ✅ `Pytest E2E (test_03_boundary.py)` |
-| `CTRL-001` | Control Plane | PostgreSQL Database Backend Service | ✅ OK | ✅ `docker-compose.yml` | ✅ `Pytest E2E (test_01_control_plane.py)` |
-| `CTRL-002` | Control Plane | Overseer Bridge Network Isolation | ✅ OK | ✅ `docker-compose.yml` | ✅ `Pytest E2E (test_01_control_plane.py)` |
+| `CTRL-001` | Control Plane | PostgreSQL Database Backend Service | ✅ OK | ✅ `compose.yml` | ✅ `Pytest E2E (test_01_control_plane.py)` |
+| `CTRL-002` | Control Plane | Overseer Bridge Network Isolation | ✅ OK | ✅ `compose.yml` | ✅ `Pytest E2E (test_01_control_plane.py)` |
 | `CTRL-003` | Control Plane | Automated Full Stack Bootstrap | ✅ OK | ✅ `Makefile` | ✅ `Pytest E2E (test_01_control_plane.py)` |
-| `CTRL-004` | Control Plane | Ansible Semaphore Web UI and Orchestrator service | ✅ OK | ✅ `docker-compose.yml` | ✅ `Pytest E2E (test_04_ansible_e2e.py)` |
+| `CTRL-004` | Control Plane | Ansible Semaphore Web UI and Orchestrator service | ✅ OK | ✅ `compose.yml` | ✅ `Pytest E2E (test_04_ansible_e2e.py)` |
 | `CTRL-005` | Control Plane | Automated Semaphore Project and Template Seeding | ✅ OK | ✅ `scripts/init-semaphore.sh` | ✅ `Pytest E2E (test_04_ansible_e2e.py)` |
 | `ONBOARD-001` | Control Plane | Greenfield Server Baseline Provisioning Workflow | ✅ OK | ✅ `docs/PROVISIONING_AND_MIGRATION_GUIDELINE.md` | ✅ `Pytest E2E (test_05_provisioning_onboarding.py)` |
 | `ONBOARD-002` | Control Plane | Brownfield Legacy Server 3-Stage Migration and Lockout Safety | ✅ OK | ✅ `docs/PROVISIONING_AND_MIGRATION_GUIDELINE.md` | ✅ `Pytest E2E (test_05_provisioning_onboarding.py)` |

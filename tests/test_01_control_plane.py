@@ -19,8 +19,8 @@ def test_ctrl_001_postgres_backend():
 
 def test_ctrl_002_network_and_orchestration(root_dir):
     """[CTRL-002] Overseer Bridge Network Isolation and Compose definition"""
-    compose_file = root_dir / "docker-compose.yml"
-    assert compose_file.exists(), "docker-compose.yml is missing"
+    compose_file = root_dir / "compose.yml"
+    assert compose_file.exists(), "compose.yml is missing"
     content = compose_file.read_text()
     assert "overseer-net:" in content, "overseer-net network is not defined in compose file"
 
@@ -35,10 +35,12 @@ def test_ctrl_003_bootstrap_workflow(root_dir):
     assert "preflight" in makefile_content, "Makefile must have preflight target"
     assert "orchestrator.py" in makefile_content, "Makefile must delegate lifecycle tasks to orchestrator.py"
 
-    # Pre-flight check function verification
+    # Pre-flight check and keygen function verification
     orch_content = orchestrator.read_text(encoding="utf-8")
     assert "run_preflight_checks" in orch_content, "orchestrator.py must implement run_preflight_checks"
     assert "docker compose version" in orch_content, "preflight must check docker compose version"
+    assert "generate_base64_key" in orch_content, "orchestrator.py must implement automated base64 keygen"
+    assert "get_configured_data_dir" in orch_content, "orchestrator.py must support centralized DATA_DIR"
 
 def test_bao_ctrl_001_openbao_health(http_session, openbao_url):
     """[BAO-CTRL-001] OpenBao Server Initialization and Unseal status"""

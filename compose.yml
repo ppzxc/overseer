@@ -17,7 +17,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-boundarypassword}
       POSTGRES_DB: ${POSTGRES_DB:-boundary}
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      - ${DATA_DIR:-/data}/postgres:/var/lib/postgresql/data
     networks:
       - overseer-net
     healthcheck:
@@ -52,7 +52,7 @@ services:
       BAO_API_ADDR: "http://127.0.0.1:8200"
     volumes:
       - ./openbao/config:/openbao/config:ro
-      - ./openbao/data:/openbao/data
+      - ${DATA_DIR:-/data}/openbao:/openbao/data
       - ./openbao/scripts:/openbao/scripts:ro
     entrypoint: ["bao", "server", "-config=/openbao/config/openbao.hcl"]
     networks:
@@ -94,6 +94,7 @@ services:
     volumes:
       - ./boundary/config:/boundary/config:ro
       - ./boundary/scripts:/boundary/scripts:ro
+      - ${DATA_DIR:-/data}/boundary:/boundary/data
     command: ["boundary", "server", "-config=/boundary/config/controller.hcl"]
     networks:
       - overseer-net
@@ -123,6 +124,7 @@ services:
       BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY: ${BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY:-8pv7uU8g58aN8y1n8PqR8G3z7rW+V8eY9nQ2x3Z1v4U=}
     volumes:
       - ./boundary/config:/boundary/config:ro
+      - ${DATA_DIR:-/data}/boundary:/boundary/data
     command: ["boundary", "server", "-config=/boundary/config/worker.hcl"]
     networks:
       - overseer-net
@@ -164,8 +166,8 @@ services:
       ANSIBLE_HOST_KEY_CHECKING: "False"
       BAO_ADDR: http://openbao:8200
     volumes:
-      - semaphore-data:/tmp/semaphore
-      - ./openbao/data:/openbao/data:ro
+      - ${DATA_DIR:-/data}/semaphore:/tmp/semaphore
+      - ${DATA_DIR:-/data}/openbao:/openbao/data:ro
       - ~/.ssh:/root/.ssh:ro
     networks:
       - overseer-net
@@ -180,10 +182,6 @@ services:
       options:
         max-size: "20m"
         max-file: "3"
-
-volumes:
-  postgres-data:
-  semaphore-data:
 
 networks:
   overseer-net:

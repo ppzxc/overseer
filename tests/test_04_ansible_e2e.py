@@ -12,19 +12,19 @@ from pathlib import Path
 
 def test_ctrl_004_semaphore_service_definition(root_dir):
     """[CTRL-004] Semaphore UI container definition and PostgreSQL backend integration"""
-    compose_file = root_dir / "docker-compose.yml"
-    assert compose_file.exists(), "docker-compose.yml is missing"
+    compose_file = root_dir / "compose.yml"
+    assert compose_file.exists(), "compose.yml is missing"
     compose_content = compose_file.read_text(encoding="utf-8")
     
     # 1. Semaphore 서비스 및 포트 정의 검증
-    assert "semaphore:" in compose_content, "semaphore service must be defined in docker-compose.yml"
+    assert "semaphore:" in compose_content, "semaphore service must be defined in compose.yml"
     assert "image: semaphoreui/semaphore:" in compose_content, "Semaphore image must be configured"
     assert "3000:3000" in compose_content, "Semaphore port 3000 must be exposed"
     assert "SEMAPHORE_DB_DIALECT: postgres" in compose_content, "Postgres dialect must be configured"
     
     # 2. 전용 데이터 볼륨 및 OpenBao CA 마운트 검증
-    assert "semaphore-data:/tmp/semaphore" in compose_content, "Semaphore must use dedicated data volume"
-    assert "- ./openbao/data:/openbao/data:ro" in compose_content, "Semaphore must mount OpenBao data volume"
+    assert "${DATA_DIR:-/data}/semaphore:/tmp/semaphore" in compose_content, "Semaphore must use dedicated data volume"
+    assert "${DATA_DIR:-/data}/openbao:/openbao/data:ro" in compose_content, "Semaphore must mount OpenBao data volume"
 
 def test_ctrl_005_gitops_seeding_contract(root_dir):
     """[CTRL-005] Semaphore GitOps Project, Repository, and Task Templates Seeding Blueprint"""
