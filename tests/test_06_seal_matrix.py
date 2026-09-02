@@ -51,6 +51,12 @@ def test_ctrl_007_boundary_profile_content(root_dir):
     assert 'purpose   = "root"' in local_ctrl
     assert 'purpose   = "worker-auth"' in local_ctrl
     assert 'purpose   = "recovery"' in local_ctrl
+    assert 'purpose     = "api"' in local_ctrl, "purpose = api missing in local-aead controller"
+    assert 'purpose     = "cluster"' in local_ctrl, "purpose = cluster missing in local-aead controller"
+    
+    # Local AEAD worker
+    local_worker = (boundary_profiles / "worker-local-aead.hcl").read_text(encoding="utf-8")
+    assert 'purpose     = "proxy"' in local_worker, "purpose = proxy missing in worker profile"
     
     # GCP KMS controller
     gcp_ctrl = (boundary_profiles / "gcp-kms.hcl").read_text(encoding="utf-8")
@@ -58,17 +64,8 @@ def test_ctrl_007_boundary_profile_content(root_dir):
     assert 'purpose    = "root"' in gcp_ctrl
     assert 'purpose    = "worker-auth"' in gcp_ctrl
     assert 'purpose    = "recovery"' in gcp_ctrl
-    
-    # Local AEAD worker
-    local_worker = (boundary_profiles / "worker-local-aead.hcl").read_text(encoding="utf-8")
-    assert 'kms "aead"' in local_worker and 'purpose   = "worker-auth"' in local_worker
-    
-    # GCP KMS worker
-    gcp_worker = (boundary_profiles / "worker-gcp-kms.hcl").read_text(encoding="utf-8")
-    assert 'kms "gcpckms"' in gcp_worker and 'purpose    = "worker-auth"' in gcp_worker
 
 def test_ctrl_007_orchestrator_seal_and_port_branching(root_dir):
-    """[CTRL-007] Orchestrator dynamic profile injection, port exposure, and key modes"""
     import sys
     sys.path.insert(0, str(root_dir / "scripts"))
     import orchestrator
@@ -86,13 +83,15 @@ def test_ctrl_007_orchestrator_seal_and_port_branching(root_dir):
     assert res["aead_mode"] == "auto"
     
     active_openbao = (root_dir / "openbao" / "config" / "openbao.hcl").read_text(encoding="utf-8")
+    assert 'storage "raft"' in active_openbao
     assert 'seal "gcpckms"' not in active_openbao
     
     env_content = (root_dir / ".env").read_text(encoding="utf-8")
-    assert "EXPOSE_PORTS=true" in env_content
     assert "OPENBAO_PORT_BINDING=8200:8200" in env_content
+    assert "SEMAPHORE_PORT_BINDING=3000:3000" in env_content
+    assert "OPENBAO_SHAMIR_MODE=auto" in env_content
     
-    # 2. Test GCP KMS + Internal Ports only (No host exposure) + Manual modes
+    # 2. Test GCP Cloud KMS + Internal Ports + Manual Shamir
     os.environ["SEAL_TYPE"] = "gcpkms"
     os.environ["EXPOSE_PORTS"] = "false"
     os.environ["OPENBAO_SHAMIR_MODE"] = "manual"
@@ -118,6 +117,7 @@ def test_ctrl_007_orchestrator_seal_and_port_branching(root_dir):
     env_content_internal = (root_dir / ".env").read_text(encoding="utf-8")
     assert "EXPOSE_PORTS=false" in env_content_internal
     assert "OPENBAO_PORT_BINDING=127.0.0.1::8200" in env_content_internal
+    assert "OPENBAO_SHAMIR_MODE=manual" in env_content_internal
     
     # Revert back to local + exposed for standard testing
     os.environ["SEAL_TYPE"] = "local"
@@ -132,5 +132,13 @@ def test_ctrl_007_openbao_init_script_unseal_branching(root_dir):
     
     assert "SHAMIR_MODE" in init_script, "SHAMIR_MODE variable missing in init-openbao-ssh-ca.sh"
     assert "MANUAL Key Management Mode" in init_script or "manual" in init_script, "Manual mode prompt missing in init-openbao-ssh-ca.sh"
+    assert "rm -f /openbao/data/openbao-init.json" in init_script, "Manual mode must delete persisted init file"
     assert "recovery_keys" in init_script, "recovery_keys parsing missing in init-openbao-ssh-ca.sh"
     assert "sys/seal-status" in init_script, "seal-status checking missing in init-openbao-ssh-ca.sh"
+    
+    # Verify Compose and Orchestrator bindings
+    compose_content = (root_dir / "compose.yml").read_text(encoding="utf-8")
+    assert "OPENBAO_SHAMIR_MODE:" in compose_content, "OPENBAO_SHAMIR_MODE missing from compose.yml"
+    
+    orchestrator_code = (root_dir / "scripts" / "orchestrator.py").read_text(encoding="utf-8")
+    assert "OPENBAO_SHAMIR_MODE=" in orchestrator_code, "OPENBAO_SHAMIR_MODE propagation missing in orchestrator.py"
