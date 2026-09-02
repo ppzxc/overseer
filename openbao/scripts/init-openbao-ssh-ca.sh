@@ -13,12 +13,27 @@ BAO_ADDR="${BAO_ADDR:-http://127.0.0.1:8200}"
 export BAO_ADDR
 SHAMIR_MODE="${OPENBAO_SHAMIR_MODE:-auto}"
 
+# Ensure curl and jq are available in OpenBao container
+if ! command -v curl >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1; then
+    echo "[*] Installing required packages (curl, jq) inside OpenBao container..."
+    if command -v apk >/dev/null 2>&1; then
+        apk add --no-cache curl jq >/dev/null 2>&1 || true
+    fi
+fi
+
 echo "[*] Connecting to OpenBao at ${BAO_ADDR}..."
 
-# OpenBao 준비 대기 (OpenBao HTTP API 응답 대기 - 200, 501 uninit, 503 sealed 등)
+# OpenBao 준비 대기 (OpenBao HTTP API 응답 대기 - 최대 30초)
+RETRY_COUNT=0
+MAX_RETRIES=15
 until curl -s -o /dev/null "${BAO_ADDR}/v1/sys/init"; do
     echo "[-] Waiting for OpenBao server to start..."
     sleep 2
+    RETRY_COUNT=$((RETRY_COUNT + 1))
+    if [ "${RETRY_COUNT}" -ge "${MAX_RETRIES}" ]; then
+        echo "[-] Timed out waiting for OpenBao server to start at ${BAO_ADDR}."
+        exit 1
+    fi
 done
 
 # 1. 초기화 여부 점검
