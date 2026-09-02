@@ -18,7 +18,7 @@ def test_bnd_ctrl_002_cluster_port(root_dir):
         controller_hcl = root_dir / "boundary" / "config" / "controller.hcl"
         assert controller_hcl.exists(), "controller.hcl is missing"
         content = controller_hcl.read_text(encoding="utf-8")
-        assert "type        = \"cluster\"" in content and "9201" in content, "Cluster port 9201 not configured in controller.hcl"
+        assert ("purpose     = \"cluster\"" in content or "purpose = \"cluster\"" in content) and "9201" in content, "Cluster port 9201 not configured in controller.hcl"
     else:
         assert result == 0, "Boundary Controller cluster port 9201 is not listening."
 
@@ -33,6 +33,6 @@ def test_bnd_ctrl_003_worker_proxy_port(root_dir):
         worker_hcl = root_dir / "boundary" / "config" / "worker.hcl"
         assert worker_hcl.exists(), "worker.hcl is missing"
         content = worker_hcl.read_text(encoding="utf-8")
-        assert "type        = \"proxy\"" in content and "9202" in content, "Proxy port 9202 not configured in worker.hcl"
+        assert ("purpose     = \"proxy\"" in content or "purpose = \"proxy\"" in content) and "9202" in content, "Proxy port 9202 not configured in worker.hcl"
     else:
         assert result == 0, "Boundary Worker proxy port 9202 is not listening."

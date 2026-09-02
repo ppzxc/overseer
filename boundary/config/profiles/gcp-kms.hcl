@@ -12,7 +12,7 @@ controller {
 # API Listener (포트 9200)
 listener "tcp" {
   address     = "0.0.0.0:9200"
-  type        = "api"
+  purpose     = "api"
   tls_disable = true
   cors {
     enabled = true
@@ -23,7 +23,7 @@ listener "tcp" {
 # Cluster Listener (포트 9201)
 listener "tcp" {
   address     = "0.0.0.0:9201"
-  type        = "cluster"
+  purpose     = "cluster"
   tls_disable = true
 }
 

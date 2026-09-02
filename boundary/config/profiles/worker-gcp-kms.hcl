@@ -17,7 +17,7 @@ worker {
 # Proxy Listener (포트 9202)
 listener "tcp" {
   address     = "0.0.0.0:9202"
-  type        = "proxy"
+  purpose     = "proxy"
   tls_disable = true
 }
 
