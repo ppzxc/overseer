@@ -74,7 +74,7 @@ services:
 
   # 3. HashiCorp Boundary Controller
   boundary-controller:
-    image: hashicorp/boundary:0.15
+    image: hashicorp/boundary:0.21.3
     restart: unless-stopped
     deploy:
       resources:
@@ -111,7 +111,7 @@ services:
 
   # 4. HashiCorp Boundary Worker
   boundary-worker:
-    image: hashicorp/boundary:0.15
+    image: hashicorp/boundary:0.21.3
     restart: unless-stopped
     deploy:
       resources:
@@ -142,7 +142,7 @@ services:
 
   # 5. Semaphore UI (Ansible Web UI & Orchestrator)
   semaphore:
-    image: semaphoreui/semaphore:v2.10.35
+    image: semaphoreui/semaphore:v2.19.12
     restart: unless-stopped
     deploy:
       resources:
