@@ -50,6 +50,7 @@ services:
     environment:
       BAO_ADDR: "http://0.0.0.0:8200"
       BAO_API_ADDR: "http://127.0.0.1:8200"
+      OPENBAO_SHAMIR_MODE: ${OPENBAO_SHAMIR_MODE:-auto}
       GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS:-}
     volumes:
       - ./openbao/config:/openbao/config:ro

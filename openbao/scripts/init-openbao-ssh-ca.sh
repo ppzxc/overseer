@@ -49,6 +49,7 @@ if [ "${INIT_STATUS}" != "true" ]; then
     mkdir -p /openbao/data
     
     if [ "${SHAMIR_MODE}" = "manual" ]; then
+        rm -f /openbao/data/openbao-init.json
         echo "================================================================================"
         echo " [IMPORTANT] OpenBao Initialized in MANUAL Key Management Mode!"
         echo " Please securely copy and backup your unseal key and root token below."
@@ -77,8 +78,19 @@ else
         ROOT_TOKEN=$(jq -r '.root_token // empty' /openbao/data/openbao-init.json)
         UNSEAL_KEY=$(jq -r '(.keys // .recovery_keys // [])[0] // empty' /openbao/data/openbao-init.json)
         
+        if [ "${SHAMIR_MODE}" = "manual" ]; then
+            echo "================================================================================"
+            echo " [IMPORTANT] OpenBao Switched to MANUAL Key Management Mode!"
+            echo " Removing /openbao/data/openbao-init.json from disk for zero-knowledge safety."
+            echo "--------------------------------------------------------------------------------"
+            echo " UNSEAL KEY  : ${UNSEAL_KEY}"
+            echo " ROOT TOKEN  : ${ROOT_TOKEN}"
+            echo "================================================================================"
+            rm -f /openbao/data/openbao-init.json
+        fi
+
         # Shamir 키가 있는 경우 언실 시도
-        if jq -e '.keys | length > 0' /openbao/data/openbao-init.json >/dev/null 2>&1; then
+        if [ -n "${UNSEAL_KEY}" ]; then
             curl -s -X POST "${BAO_ADDR}/v1/sys/unseal" -d "{\"key\": \"${UNSEAL_KEY}\"}" >/dev/null 2>&1 || true
         fi
     elif [ -n "${PROVIDED_UNSEAL_KEY}" ]; then

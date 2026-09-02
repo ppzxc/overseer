@@ -270,6 +270,31 @@ def configure_port_binding(expose_ports=True):
     for k, v in ports_map.items():
         os.environ[k] = v
 
+def update_env_vars(var_map: dict):
+    """Updates or adds key-value pairs in .env."""
+    env_file = ROOT_DIR / ".env"
+    if not env_file.exists():
+        return
+    lines = env_file.read_text(encoding="utf-8").splitlines()
+    new_lines = []
+    updated_keys = set()
+    for l in lines:
+        matched = False
+        for k, v in var_map.items():
+            if l.strip().startswith(f"{k}="):
+                new_lines.append(f"{k}={v}")
+                updated_keys.add(k)
+                matched = True
+                break
+        if not matched:
+            new_lines.append(l)
+    for k, v in var_map.items():
+        if k not in updated_keys:
+            new_lines.append(f"{k}={v}")
+    env_file.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+    for k, v in var_map.items():
+        os.environ[k] = v
+
 def prompt_and_configure_all(interactive=True):
     """
     Prompts (if interactive) and configures:
@@ -335,10 +360,12 @@ def prompt_and_configure_all(interactive=True):
     # Apply Port Binding
     configure_port_binding(expose_ports)
     
-    # Save modes to os.environ
-    os.environ["SEAL_TYPE"] = seal_type
-    os.environ["OPENBAO_SHAMIR_MODE"] = shamir_mode
-    os.environ["BOUNDARY_AEAD_MODE"] = aead_mode
+    # Save modes to .env and os.environ
+    update_env_vars({
+        "SEAL_TYPE": seal_type,
+        "OPENBAO_SHAMIR_MODE": shamir_mode,
+        "BOUNDARY_AEAD_MODE": aead_mode,
+    })
     
     # Read .env to memory
     env_vars = {}
@@ -440,7 +467,8 @@ def init_openbao():
     print(f"{CYAN}[*] Initializing and unsealing OpenBao & SSH CA...{RESET}")
     run_cmd("docker compose up -d openbao", check=True)
     time.sleep(2)
-    run_cmd("docker compose exec -T openbao /bin/sh /openbao/scripts/init-openbao-ssh-ca.sh", check=False)
+    shamir_mode = os.getenv("OPENBAO_SHAMIR_MODE", "auto")
+    run_cmd(f"docker compose exec -T -e OPENBAO_SHAMIR_MODE={shamir_mode} openbao /bin/sh /openbao/scripts/init-openbao-ssh-ca.sh", check=False)
     print(f"{GREEN}[+] OpenBao SSH CA setup finished.{RESET}")
 
 def init_semaphore():
