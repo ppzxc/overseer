@@ -1,8 +1,8 @@
 # Overseer 3-Way Traceability Matrix (자동 생성)
 
-> **최종 검증 일시**: `2026-09-02 16:28:34`  
+> **최종 검증 일시**: `2026-09-02 16:53:04`  
 > **검증 상태**: `✅ 100% PASS`  
-> **스펙 총계**: `15` 개 (Control Plane: 15, Ansible: 0)
+> **스펙 총계**: `16` 개 (Control Plane: 16, Ansible: 0)
 
 ---
 
@@ -23,6 +23,7 @@
 | `CTRL-005` | Control Plane | Automated Semaphore Project and Template Seeding | ✅ OK | ✅ `scripts/init-semaphore.sh` | ✅ `Pytest E2E (test_04_ansible_e2e.py)` |
 | `CTRL-006` | Control Plane | Automated Pre-Flight Prerequisites Validator | ✅ OK | ✅ `scripts/orchestrator.py` | ✅ `Pytest E2E (test_01_control_plane.py)` |
 | `CTRL-007` | Control Plane | Pluggable Seal and KMS Backend Configuration Profiles | ✅ OK | ✅ `scripts/orchestrator.py` | ✅ `Pytest E2E (test_06_seal_matrix.py)` |
+| `CTRL-008` | Control Plane | Production Target Deployment and Backup-Ready Packaging | ✅ OK | ✅ `scripts/orchestrator.py` | ✅ `Pytest E2E (test_07_production_deployment.py)` |
 | `ONBOARD-001` | Control Plane | Greenfield Server Baseline Provisioning Workflow | ✅ OK | ✅ `docs/PROVISIONING_AND_MIGRATION_GUIDELINE.md` | ✅ `Pytest E2E (test_05_provisioning_onboarding.py)` |
 | `ONBOARD-002` | Control Plane | Brownfield Legacy Server 3-Stage Migration and Lockout Safety | ✅ OK | ✅ `docs/PROVISIONING_AND_MIGRATION_GUIDELINE.md` | ✅ `Pytest E2E (test_05_provisioning_onboarding.py)` |
 

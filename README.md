@@ -42,8 +42,11 @@ cp .env.example .env
 
 ### 1) 중앙 컨트롤 플레인 부트스트랩 및 서비스 제어
 ```bash
-# [전체 통합] 전체 스택 기동 및 초기화 (SEAL 프로파일 선택/주입, OpenBao SSH CA, Boundary DB, Semaphore GitOps 시딩)
-make bootstrap        # 또는 make up
+# [전체 통합] 전체 스택 기동 및 초기화 (운영 경로 /opt/services/overseer 자동 복제 배포 지원)
+make bootstrap        # 또는 make up (TARGET_DIR=/opt/services/overseer 지정 가능)
+
+# [운영 필수 파일 동기화/배포만 실행]
+make production-sync  # 운영 필수 구성요소만 대상 경로로 선별 복제 (비운영 파일 제외)
 
 # [KMS 프로파일 변경/주입]
 make configure-seal   # Local Shamir 또는 GCP Cloud KMS 프로파일 대화형/자동 적용
@@ -102,7 +105,8 @@ overseer/
 │   ├── test_03_boundary.py
 │   ├── test_04_ansible_e2e.py
 │   ├── test_05_provisioning_onboarding.py
-│   └── test_06_seal_matrix.py
+│   ├── test_06_seal_matrix.py
+│   └── test_07_production_deployment.py
 │
 ├── openbao/                   # OpenBao 오픈소스 시크릿/SSH CA 설정 & 초기화
 │   ├── config/profiles/       # Local Shamir 및 GCP Cloud KMS 프로파일

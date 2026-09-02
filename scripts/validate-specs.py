@@ -59,6 +59,7 @@ def extract_all_code_implementations():
         "CTRL-005": ("Automated Semaphore Project and Template Seeding", "scripts/init-semaphore.sh"),
         "CTRL-006": ("Automated Pre-Flight Prerequisites Validator", "scripts/orchestrator.py"),
         "CTRL-007": ("Pluggable Seal and KMS Backend Configuration Profiles", "scripts/orchestrator.py"),
+        "CTRL-008": ("Production Target Deployment and Backup-Ready Packaging", "scripts/orchestrator.py"),
         "BAO-CTRL-001": ("OpenBao Server Initialization and Unseal", "openbao/config/openbao.hcl"),
         "BAO-CTRL-002": ("OpenBao SSH CA Secrets Engine Mount", "openbao/scripts/init-openbao-ssh-ca.sh"),
         "BAO-CTRL-003": ("OpenBao SSH User Certificate Signing Role", "openbao/scripts/init-openbao-ssh-ca.sh"),

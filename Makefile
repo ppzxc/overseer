@@ -3,7 +3,7 @@
         start-boundary stop-boundary restart-boundary init-boundary \
         start-semaphore stop-semaphore restart-semaphore init-semaphore \
         start-postgres stop-postgres restart-postgres init-postgres \
-        configure-seal spec-check test test-e2e clean
+        configure-seal production-sync spec-check test test-e2e clean
 
 # Default Target
 help:
@@ -12,10 +12,12 @@ help:
 	@echo "================================================================================"
 	@echo "  make preflight                - Run pre-flight checks (tools, permissions, ports)"
 	@echo "  make up / bootstrap           - Start & bootstrap all Control Plane components"
+	@echo "                                  (supports TARGET_DIR=/opt/services/overseer)"
+	@echo "  make production-sync          - Sync only production-critical operational files"
 	@echo "  make configure-seal           - Apply KMS seal/unseal profile (local / gcpkms)"
 	@echo "  make down                     - Stop all Control Plane components"
 	@echo "  make restart                  - Restart all Control Plane components"
-	@echo "  make status                   - Check health of OpenBao, Boundary, Postgres, Semaphore"
+	@echo "  make status                   - Check health of OpenBao, Boundary (Ctrl & Worker), Postgres, Semaphore"
 	@echo "  make logs                     - View live logs of all services"
 	@echo "--------------------------------------------------------------------------------"
 	@echo "  Individual Service Management (OpenBao, Boundary, Semaphore, Postgres):"
@@ -31,6 +33,9 @@ help:
 # ------------------------------------------------------------------------------
 # Helpers
 # ------------------------------------------------------------------------------
+TARGET_DIR ?=
+TARGET_FLAG := $(if $(TARGET_DIR),--target-dir $(TARGET_DIR),)
+
 env-file:
 	@if [ ! -f .env ]; then cp .env.example .env; fi
 
@@ -54,7 +59,10 @@ preflight:
 	@./scripts/orchestrator.py preflight
 
 up bootstrap: env-file
-	@./scripts/orchestrator.py bootstrap
+	@./scripts/orchestrator.py bootstrap $(TARGET_FLAG)
+
+production-sync: env-file
+	@./scripts/orchestrator.py deploy-target $(TARGET_FLAG)
 
 down:
 	@docker compose down

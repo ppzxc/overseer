@@ -478,8 +478,124 @@ def init_semaphore():
     if init_script.exists():
         run_cmd(str(init_script), check=False)
 
-def bootstrap():
+def deploy_to_target(source_dir: Path, target_dir: Path, execute_bootstrap: bool = True):
+    """
+    Copies only production-critical operational files to the target deployment directory,
+    excluding tests, docs, git repository, test artifacts, and caches.
+    Ensures safe permissions and transitions execution to the target directory.
+    """
+    source_dir = Path(source_dir).resolve()
+    target_dir = Path(target_dir).resolve()
+    
+    print(f"\n{BOLD}{CYAN}================================================================================{RESET}")
+    print(f"{BOLD}{CYAN}      Deploying Overseer Operational Files to Target Location                   {RESET}")
+    print(f"{BOLD}{CYAN}================================================================================{RESET}")
+    print(f"  Source (Git Workspace) : {source_dir}")
+    print(f"  Target (Production)    : {target_dir}\n")
+
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    # 1. Top-level essential operational files
+    top_files = ["compose.yml", "Makefile", "README.md", "CONTEXT.md", ".env.example"]
+    if (source_dir / ".env").exists():
+        top_files.append(".env")
+
+    for tf in top_files:
+        src_f = source_dir / tf
+        dst_f = target_dir / tf
+        if src_f.exists():
+            shutil.copy2(src_f, dst_f)
+            print(f"{GREEN}[+] Copied: {tf}{RESET}")
+
+    # 2. OpenBao configuration & scripts
+    (target_dir / "openbao" / "config").mkdir(parents=True, exist_ok=True)
+    (target_dir / "openbao" / "scripts").mkdir(parents=True, exist_ok=True)
+    
+    openbao_profiles_src = source_dir / "openbao" / "config" / "profiles"
+    if openbao_profiles_src.exists():
+        shutil.copytree(openbao_profiles_src, target_dir / "openbao" / "config" / "profiles", dirs_exist_ok=True)
+    if (source_dir / "openbao" / "config" / "openbao.hcl").exists():
+        shutil.copy2(source_dir / "openbao" / "config" / "openbao.hcl", target_dir / "openbao" / "config" / "openbao.hcl")
+    if (source_dir / "openbao" / "scripts" / "init-openbao-ssh-ca.sh").exists():
+        shutil.copy2(source_dir / "openbao" / "scripts" / "init-openbao-ssh-ca.sh", target_dir / "openbao" / "scripts" / "init-openbao-ssh-ca.sh")
+        (target_dir / "openbao" / "scripts" / "init-openbao-ssh-ca.sh").chmod(0o755)
+
+    # 3. Boundary configuration & scripts
+    (target_dir / "boundary" / "config").mkdir(parents=True, exist_ok=True)
+    (target_dir / "boundary" / "scripts").mkdir(parents=True, exist_ok=True)
+    
+    boundary_profiles_src = source_dir / "boundary" / "config" / "profiles"
+    if boundary_profiles_src.exists():
+        shutil.copytree(boundary_profiles_src, target_dir / "boundary" / "config" / "profiles", dirs_exist_ok=True)
+    if (source_dir / "boundary" / "config" / "controller.hcl").exists():
+        shutil.copy2(source_dir / "boundary" / "config" / "controller.hcl", target_dir / "boundary" / "config" / "controller.hcl")
+    if (source_dir / "boundary" / "config" / "worker.hcl").exists():
+        shutil.copy2(source_dir / "boundary" / "config" / "worker.hcl", target_dir / "boundary" / "config" / "worker.hcl")
+    if (source_dir / "boundary" / "scripts" / "init-boundary.sh").exists():
+        shutil.copy2(source_dir / "boundary" / "scripts" / "init-boundary.sh", target_dir / "boundary" / "scripts" / "init-boundary.sh")
+        (target_dir / "boundary" / "scripts" / "init-boundary.sh").chmod(0o755)
+
+    # 4. Operational Scripts
+    (target_dir / "scripts").mkdir(parents=True, exist_ok=True)
+    for sc in ["orchestrator.py", "init-semaphore.sh", "healthcheck.sh"]:
+        src_sc = source_dir / "scripts" / sc
+        dst_sc = target_dir / "scripts" / sc
+        if src_sc.exists():
+            shutil.copy2(src_sc, dst_sc)
+            dst_sc.chmod(0o755)
+            print(f"{GREEN}[+] Copied script: scripts/{sc}{RESET}")
+
+    print(f"\n{BOLD}{GREEN}[+] Production operational files successfully deployed to {target_dir}!{RESET}\n")
+
+    if execute_bootstrap:
+        print(f"{CYAN}[*] Executing full-stack bootstrap inside target directory: {target_dir}...{RESET}\n")
+        env = os.environ.copy()
+        res = subprocess.run(
+            ["python3", str(target_dir / "scripts" / "orchestrator.py"), "bootstrap", "--target-dir", str(target_dir)],
+            cwd=str(target_dir),
+            env=env
+        )
+        sys.exit(res.returncode)
+
+    return True
+
+def prompt_target_directory(interactive=True, default_target="/opt/services/overseer"):
+    """Prompts for target production directory or uses default / env var."""
+    if os.getenv("OVERSEER_TARGET_DIR"):
+        return Path(os.getenv("OVERSEER_TARGET_DIR")).resolve()
+    if not interactive or not sys.stdin.isatty():
+        return Path(default_target).resolve()
+    
+    print(f"\n{BOLD}{CYAN}================================================================================{RESET}")
+    print(f"{BOLD}{CYAN}           Overseer Production Installation Directory Selection                 {RESET}")
+    print(f"{BOLD}{CYAN}================================================================================{RESET}\n")
+    print(f" Overseer will copy production-critical files (excluding tests/docs/git) to this directory.")
+    print(f" Default installation target: {BOLD}{default_target}{RESET}\n")
+    try:
+        user_input = input(f"Enter target path (Press Enter for '{default_target}'): ").strip()
+        chosen = user_input if user_input else default_target
+        return Path(chosen).resolve()
+    except (EOFError, KeyboardInterrupt):
+        return Path(default_target).resolve()
+
+def bootstrap(target_dir_param=None):
     """Full end-to-end bootstrap of all Control Plane services."""
+    current_root = ROOT_DIR.resolve()
+    
+    # 0. Check if we should deploy to a target production directory
+    target_dir = None
+    if target_dir_param:
+        target_dir = Path(target_dir_param).resolve()
+    elif os.getenv("OVERSEER_TARGET_DIR"):
+        target_dir = Path(os.getenv("OVERSEER_TARGET_DIR")).resolve()
+    elif (current_root / ".git").exists() or (current_root / "tests").exists():
+        # Running from source/git repository: prompt or default to /opt/services/overseer
+        target_dir = prompt_target_directory(interactive=True, default_target="/opt/services/overseer")
+
+    if target_dir and target_dir != current_root:
+        deploy_to_target(source_dir=current_root, target_dir=target_dir, execute_bootstrap=True)
+        return
+
     # 0. Pre-Flight Prerequisites Validation (including backend network)
     run_preflight_checks(exit_on_failure=True)
 
@@ -522,7 +638,8 @@ def check_service_status():
         ("1. PostgreSQL (5432)", "docker compose exec -T postgres pg_isready -U boundary", "tcp"),
         ("2. OpenBao API (8200)", "docker compose exec -T openbao bao status -address=http://127.0.0.1:8200", "cli"),
         ("3. Boundary Controller (9200)", "curl -s http://127.0.0.1:9200/v1/health || docker compose exec -T boundary-controller /bin/sh -c 'curl -s http://127.0.0.1:9200/v1/health'", "http"),
-        ("4. Semaphore UI (3000)", "curl -s http://127.0.0.1:3000/api/ping || docker compose exec -T semaphore /bin/sh -c 'nc -z 127.0.0.1 3000'", "http"),
+        ("4. Boundary Worker (9202)", "nc -z 127.0.0.1 9202 || docker compose exec -T boundary-worker /bin/sh -c 'nc -z 127.0.0.1 9202'", "tcp"),
+        ("5. Semaphore UI (3000)", "curl -s http://127.0.0.1:3000/api/ping || docker compose exec -T semaphore /bin/sh -c 'nc -z 127.0.0.1 3000'", "http"),
     ]
     
     all_healthy = True
@@ -541,7 +658,8 @@ def check_service_status():
 
 def main():
     parser = argparse.ArgumentParser(description="Overseer Control Plane Lifecycle Orchestrator")
-    parser.add_argument("action", choices=["bootstrap", "up", "preflight", "status", "down", "init-openbao", "init-boundary", "init-semaphore", "configure-seal"], help="Action to perform")
+    parser.add_argument("action", choices=["bootstrap", "up", "preflight", "status", "down", "init-openbao", "init-boundary", "init-semaphore", "configure-seal", "deploy-target"], help="Action to perform")
+    parser.add_argument("--target-dir", default=None, help="Target production installation directory (default: /opt/services/overseer)")
     parser.add_argument("--seal-type", choices=["local", "gcpkms"], default=None, help="Force specific seal backend")
     parser.add_argument("--expose-ports", choices=["true", "false"], default=None, help="Expose ports to host")
     parser.add_argument("--shamir-mode", choices=["auto", "manual"], default=None, help="OpenBao shamir unseal mode")
@@ -549,6 +667,8 @@ def main():
     
     args = parser.parse_args()
     
+    if args.target_dir:
+        os.environ["OVERSEER_TARGET_DIR"] = args.target_dir
     if args.seal_type:
         os.environ["SEAL_TYPE"] = args.seal_type
     if args.expose_ports:
@@ -559,7 +679,10 @@ def main():
         os.environ["BOUNDARY_AEAD_MODE"] = args.aead_mode
 
     if args.action in ["bootstrap", "up"]:
-        bootstrap()
+        bootstrap(target_dir_param=args.target_dir)
+    elif args.action == "deploy-target":
+        target = Path(args.target_dir if args.target_dir else "/opt/services/overseer").resolve()
+        deploy_to_target(source_dir=ROOT_DIR, target_dir=target, execute_bootstrap=False)
     elif args.action == "preflight":
         passed = run_preflight_checks(exit_on_failure=False)
         sys.exit(0 if passed else 1)
