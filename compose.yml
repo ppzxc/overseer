@@ -50,10 +50,12 @@ services:
     environment:
       BAO_ADDR: "http://0.0.0.0:8200"
       BAO_API_ADDR: "http://127.0.0.1:8200"
+      GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS:-}
     volumes:
       - ./openbao/config:/openbao/config:ro
       - ${DATA_DIR:-/data}/openbao:/openbao/data
       - ./openbao/scripts:/openbao/scripts:ro
+      - ${DATA_DIR:-/data}/credentials:/credentials:ro
     entrypoint: ["bao", "server", "-config=/openbao/config/openbao.hcl"]
     networks:
       - overseer-net
@@ -92,10 +94,12 @@ services:
       BOUNDARY_KMS_AEAD_ROOT_KEY: ${BOUNDARY_KMS_AEAD_ROOT_KEY:-sP191WKGvgcuEmhdREQBPBG5nhAAda4e+bQQnFRinCU=}
       BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY: ${BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY:-8pv7uU8g58aN8y1n8PqR8G3z7rW+V8eY9nQ2x3Z1v4U=}
       BOUNDARY_KMS_AEAD_RECOVERY_KEY: ${BOUNDARY_KMS_AEAD_RECOVERY_KEY:-uK382WKGvgcuEmhdREQBPBG5nhAAda4e+bQQnFRinCU=}
+      GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS:-}
     volumes:
       - ./boundary/config:/boundary/config:ro
       - ./boundary/scripts:/boundary/scripts:ro
       - ${DATA_DIR:-/data}/boundary:/boundary/data
+      - ${DATA_DIR:-/data}/credentials:/credentials:ro
     command: ["boundary", "server", "-config=/boundary/config/controller.hcl"]
     networks:
       - overseer-net
@@ -123,9 +127,11 @@ services:
       - "9202:9202"
     environment:
       BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY: ${BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY:-8pv7uU8g58aN8y1n8PqR8G3z7rW+V8eY9nQ2x3Z1v4U=}
+      GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS:-}
     volumes:
       - ./boundary/config:/boundary/config:ro
       - ${DATA_DIR:-/data}/boundary:/boundary/data
+      - ${DATA_DIR:-/data}/credentials:/credentials:ro
     command: ["boundary", "server", "-config=/boundary/config/worker.hcl"]
     networks:
       - overseer-net

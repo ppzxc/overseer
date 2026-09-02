@@ -13,9 +13,10 @@
 │  ┌──────────────────┐    ┌──────────────────┐    ┌───────────────────────┐  │
 │  │     OpenBao      │    │     Boundary     │    │ Semaphore UI (Web UI) │  │
 │  │ (SSH CA, Secrets)│    │ (Zero-Trust IAM) │    │ & GitOps Orchestrator │  │
-│  │  [Raft Storage]  │    └────────┬─────────┘    └───────────▲───────────┘  │
-│  └──────────────────┘             │                          │              │
-│                          ┌────────▼──────────────────────────┴───────────┐  │
+│  │ [Shamir / GCP-KMS│    │ [AEAD / GCP-KMS] │    └───────────▲───────────┘  │
+│  └────────┬─────────┘    └────────┬─────────┘                │              │
+│           │                       │                          │              │
+│           └──────────────┬────────▼──────────────────────────┴───────────┐  │
 │                          │     PostgreSQL (Boundary & Semaphore DB)      │  │
 │                          └───────────────────────────────────────────────┘  │
 └──────────────────────────────────────┬──────────────────────────────────────┘
@@ -26,7 +27,6 @@
 │                            IDC On-Premise Nodes                             │
 │     Target Servers bootstrapped via 'node-provisioner' Ansible Roles        │
 └─────────────────────────────────────────────────────────────────────────────┘
-
 ```
 
 ---
@@ -36,14 +36,17 @@
 ### 0) 로컬 환경 설정 (Git 분리 및 격리)
 시크릿 및 설정 정보는 Git에 커밋되지 않고 `.gitignore`로 격리됩니다.
 ```bash
-# 컨트롤 플레인 환경변수 템플릿 복사 및 설정
+# 컨트롤 플레인 환경변수 템플릿 복사 및 설정 (SEAL_TYPE: local 또는 gcpkms 선택 가능)
 cp .env.example .env
 ```
 
 ### 1) 중앙 컨트롤 플레인 부트스트랩 및 서비스 제어
 ```bash
-# [전체 통합] 전체 스택 기동 및 초기화 (OpenBao SSH CA / Boundary DB / Semaphore DB & GitOps 시딩)
+# [전체 통합] 전체 스택 기동 및 초기화 (SEAL 프로파일 선택/주입, OpenBao SSH CA, Boundary DB, Semaphore GitOps 시딩)
 make bootstrap        # 또는 make up
+
+# [KMS 프로파일 변경/주입]
+make configure-seal   # Local Shamir 또는 GCP Cloud KMS 프로파일 대화형/자동 적용
 
 # [전체 상태 확인 / 중지]
 make status           # PostgreSQL, OpenBao, Boundary, Semaphore 헬스체크
@@ -83,7 +86,7 @@ overseer/
 ├── CONTEXT.md                 # Overseer 도메인 컨텍스트
 ├── README.md                  # 본 문서
 ├── compose.yml                # OpenBao, Boundary, Semaphore, Postgres 일괄 기동
-├── .env.example               # 환경 변수 템플릿
+├── .env.example               # 환경 변수 템플릿 (SEAL_TYPE 및 GCP KMS 매개변수 포함)
 ├── Makefile                   # 원클릭 통합 제어 인터페이스 (make bootstrap, status 등)
 │
 ├── docs/                      # [전역 문서 저장소]
@@ -98,13 +101,18 @@ overseer/
 │   ├── test_02_openbao_ssh_ca.py
 │   ├── test_03_boundary.py
 │   ├── test_04_ansible_e2e.py
-│   └── test_05_provisioning_onboarding.py
+│   ├── test_05_provisioning_onboarding.py
+│   └── test_06_seal_matrix.py
 │
 ├── openbao/                   # OpenBao 오픈소스 시크릿/SSH CA 설정 & 초기화
+│   ├── config/profiles/       # Local Shamir 및 GCP Cloud KMS 프로파일
+│   └── scripts/               # SSH CA 엔진 활성화 및 Auto-Unseal 호환 스크립트
 ├── boundary/                  # HashiCorp Boundary Zero-Trust 설정
+│   ├── config/profiles/       # Controller / Worker Local AEAD 및 GCP KMS 프로파일
+│   └── scripts/               # Boundary DB 초기화 스크립트
 └── scripts/                   # 중앙 헬스체크 및 GitOps 시딩
+    ├── orchestrator.py        # 통합 라이프사이클 및 SEAL 프로파일 주입 오케스트레이터
     ├── init-semaphore.sh      # Semaphore UI GitOps 자동 시딩
-    ├── healthcheck.sh         # 각 컴포넌트 헬스체크
     └── validate-specs.py      # 3-Way Traceability 검증기
 ```
 
@@ -114,5 +122,6 @@ overseer/
 
 - 🧪 [3-Way Traceability 매트릭스 리포트](file:///home/ppzxc/projects/overseer/docs/tests/TRACEABILITY_MATRIX.md)
 - 🔐 [컨트롤 플레인 스펙 (`docs/control-plane/`)](file:///home/ppzxc/projects/overseer/docs/control-plane/INDEX.md)
+- 🏛️ [ADR-0005: Pluggable Seal/Unseal Backend Profiles](file:///home/ppzxc/projects/overseer/docs/adr/0005-pluggable-seal-unseal-backend-profiles.md)
 - 🧪 [E2E 시스템 통합 테스트 가이드](file:///home/ppzxc/projects/overseer/docs/tests/E2E_TESTING_GUIDELINE.md)
 - 🌐 [Node-Provisioner Ansible GitOps 저장소](https://github.com/ppzxc/node-provisioner)

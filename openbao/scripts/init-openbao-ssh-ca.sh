@@ -3,6 +3,7 @@ set -e
 
 # ==============================================================================
 # Overseer OpenBao Initialization & SSH CA Setup Script
+# Supports both Local Shamir Seal and Auto-Unseal (e.g. GCP Cloud KMS)
 # ==============================================================================
 
 BAO_ADDR="${BAO_ADDR:-http://127.0.0.1:8200}"
@@ -10,7 +11,7 @@ export BAO_ADDR
 
 echo "[*] Connecting to OpenBao at ${BAO_ADDR}..."
 
-# OpenBao 준비 대기
+# OpenBao 준비 대기 (Status 0=unsealed, 2=sealed)
 until curl -s "${BAO_ADDR}/v1/sys/health" >/dev/null 2>&1 || [ $? -eq 2 ]; do
     echo "[-] Waiting for OpenBao server to start..."
     sleep 2
@@ -23,29 +24,45 @@ if [ "${INIT_STATUS}" != "true" ]; then
     echo "[*] Initializing OpenBao..."
     INIT_RESP=$(curl -s -X POST "${BAO_ADDR}/v1/sys/init" -d '{"secret_shares": 1, "secret_threshold": 1}')
     
-    ROOT_TOKEN=$(echo "${INIT_RESP}" | jq -r '.root_token')
-    UNSEAL_KEY=$(echo "${INIT_RESP}" | jq -r '.keys[0]')
+    ROOT_TOKEN=$(echo "${INIT_RESP}" | jq -r '.root_token // empty')
+    UNSEAL_KEY=$(echo "${INIT_RESP}" | jq -r '(.keys // .recovery_keys // [])[0] // empty')
     
     mkdir -p /openbao/data
     echo "${INIT_RESP}" > /openbao/data/openbao-init.json
     echo "[+] OpenBao initialized. Keys saved to /openbao/data/openbao-init.json"
     
-    # 2. 언실(Unseal)
-    echo "[*] Unsealing OpenBao..."
-    curl -s -X POST "${BAO_ADDR}/v1/sys/unseal" -d "{\"key\": \"${UNSEAL_KEY}\"}" >/dev/null
+    # 2. 언실(Unseal) - Shamir 키가 존재할 때 수동 Unseal 수행
+    if echo "${INIT_RESP}" | jq -e '.keys | length > 0' >/dev/null 2>&1; then
+        echo "[*] Unsealing OpenBao with Shamir key..."
+        curl -s -X POST "${BAO_ADDR}/v1/sys/unseal" -d "{\"key\": \"${UNSEAL_KEY}\"}" >/dev/null
+    else
+        echo "[+] OpenBao is configured with Auto-Unseal (Recovery keys generated). Waiting for auto-unseal..."
+    fi
 else
     echo "[*] OpenBao is already initialized."
     if [ -f "/openbao/data/openbao-init.json" ]; then
-        ROOT_TOKEN=$(jq -r '.root_token' /openbao/data/openbao-init.json)
-        UNSEAL_KEY=$(jq -r '.keys[0]' /openbao/data/openbao-init.json)
-        # 언실 시도
-        curl -s -X POST "${BAO_ADDR}/v1/sys/unseal" -d "{\"key\": \"${UNSEAL_KEY}\"}" >/dev/null 2>&1 || true
+        ROOT_TOKEN=$(jq -r '.root_token // empty' /openbao/data/openbao-init.json)
+        UNSEAL_KEY=$(jq -r '(.keys // .recovery_keys // [])[0] // empty' /openbao/data/openbao-init.json)
+        
+        # Shamir 키가 있는 경우 언실 시도
+        if jq -e '.keys | length > 0' /openbao/data/openbao-init.json >/dev/null 2>&1; then
+            curl -s -X POST "${BAO_ADDR}/v1/sys/unseal" -d "{\"key\": \"${UNSEAL_KEY}\"}" >/dev/null 2>&1 || true
+        fi
     fi
 fi
 
 if [ -z "${BAO_TOKEN}" ] && [ -n "${ROOT_TOKEN}" ]; then
     export BAO_TOKEN="${ROOT_TOKEN}"
 fi
+
+# Unsealed 상태 대기 (최대 10초)
+for i in $(seq 1 10); do
+    SEALED_STATUS=$(curl -s "${BAO_ADDR}/v1/sys/seal-status" | jq -r '.sealed')
+    if [ "${SEALED_STATUS}" = "false" ]; then
+        break
+    fi
+    sleep 1
+done
 
 echo "[+] OpenBao is unsealed and ready. Token: ${BAO_TOKEN:0:10}..."
 

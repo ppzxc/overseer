@@ -2,12 +2,14 @@
 """
 Overseer Control Plane Lifecycle & Bootstrap Orchestrator
 Provides a deep, unified interface for full-stack service initialization,
-dependency-aware healthchecks, automated database migrations, and OpenBao/Semaphore seeding.
+dependency-aware healthchecks, automated database migrations, pluggable SEAL/UNSEAL profiles,
+and OpenBao/Semaphore seeding.
 """
 
 import os
 import sys
 import time
+import shutil
 import subprocess
 import argparse
 import base64
@@ -36,6 +38,20 @@ def get_configured_data_dir():
                 if val:
                     return Path(val).resolve() if not val.startswith("/") else Path(val)
     return Path("/data")
+
+def get_configured_seal_type():
+    """Reads SEAL_TYPE from os.environ or .env, defaulting to 'local'."""
+    if os.getenv("SEAL_TYPE"):
+        return os.getenv("SEAL_TYPE").strip().lower()
+    env_file = ROOT_DIR / ".env"
+    if env_file.exists():
+        for line in env_file.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line.startswith("SEAL_TYPE="):
+                val = line.split("=", 1)[1].strip().strip('"').strip("'").lower()
+                if val:
+                    return val
+    return "local"
 
 def generate_base64_key(bytes_len=32):
     """Generates a cryptographically secure Base64-encoded key."""
@@ -108,7 +124,7 @@ def run_preflight_checks(exit_on_failure=True):
 
     # 4. Filesystem Directory Writeability for Centralized DATA_DIR (/data)
     data_dir = get_configured_data_dir()
-    required_subs = ["postgres", "openbao", "semaphore", "boundary"]
+    required_subs = ["postgres", "openbao", "semaphore", "boundary", "credentials"]
     try:
         data_dir.mkdir(parents=True, exist_ok=True)
         for sub in required_subs:
@@ -199,6 +215,107 @@ def ensure_env_file():
         env_file.write_text(content, encoding="utf-8")
         print(f"{GREEN}[+] Fresh .env created with newly generated 32-byte KMS/encryption keys and passwords.{RESET}")
 
+def prompt_and_configure_seal_backend(interactive=True):
+    """
+    Selects, validates, and injects the active configuration profiles for OpenBao & Boundary
+    based on the chosen SEAL_TYPE (local or gcpkms).
+    """
+    seal_type = get_configured_seal_type()
+    
+    # If interactive and running in a TTY, prompt user unless explicitly overridden via env
+    if interactive and sys.stdin.isatty() and not os.getenv("SEAL_TYPE"):
+        print(f"\n{BOLD}{CYAN}================================================================================{RESET}")
+        print(f"{BOLD}{CYAN}            Select KMS Seal & Unseal Backend for Control Plane                  {RESET}")
+        print(f"{BOLD}{CYAN}================================================================================{RESET}")
+        print("  1) Local (Shamir Key Unseal & Local AEAD KMS) [Default]")
+        print("  2) GCP Cloud KMS (Auto-Unseal & Cloud KMS Key Management)")
+        print("-" * 80)
+        
+        try:
+            choice = input(f"Enter choice [1/2] (default 1): ").strip()
+            if choice == "2":
+                seal_type = "gcpkms"
+            else:
+                seal_type = "local"
+        except (EOFError, KeyboardInterrupt):
+            seal_type = "local"
+
+    print(f"{CYAN}[*] Applying Control Plane Seal Profile: {BOLD}{seal_type.upper()}{RESET}...")
+    
+    # Load .env variables into memory for template expansion
+    env_vars = {}
+    env_file = ROOT_DIR / ".env"
+    if env_file.exists():
+        for line in env_file.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                k, v = line.split("=", 1)
+                env_vars[k.strip()] = v.strip().strip('"').strip("'")
+    
+    # Update os.environ with env_vars
+    for k, v in env_vars.items():
+        if k not in os.environ:
+            os.environ[k] = v
+
+    # Validate GCP KMS parameters if gcpkms is selected
+    if seal_type == "gcpkms":
+        required_gcp_vars = ["GCP_PROJECT", "GCP_REGION", "GCP_KEY_RING", "GCP_OPENBAO_KEY"]
+        missing = [v for v in required_gcp_vars if not os.getenv(v)]
+        if missing:
+            print(f"{YELLOW}[!] Warning: GCP KMS parameters not fully set in .env: {', '.join(missing)}{RESET}")
+            print(f"{YELLOW}[!] Using template placeholders. Ensure GCP credentials & permissions exist.{RESET}")
+
+    # 1. Inject OpenBao config
+    openbao_profile = "gcp-kms.hcl" if seal_type == "gcpkms" else "local-shamir.hcl"
+    openbao_src = ROOT_DIR / "openbao" / "config" / "profiles" / openbao_profile
+    openbao_dst = ROOT_DIR / "openbao" / "config" / "openbao.hcl"
+    if openbao_src.exists():
+        content = openbao_src.read_text(encoding="utf-8")
+        # Template substitution
+        for k, v in os.environ.items():
+            content = content.replace(f"${{{k}}}", v)
+        openbao_dst.write_text(content, encoding="utf-8")
+        print(f"{GREEN}[+] Injected OpenBao profile: {openbao_profile} -> openbao/config/openbao.hcl{RESET}")
+
+    # 2. Inject Boundary Controller config
+    bnd_ctrl_profile = "gcp-kms.hcl" if seal_type == "gcpkms" else "local-aead.hcl"
+    bnd_ctrl_src = ROOT_DIR / "boundary" / "config" / "profiles" / bnd_ctrl_profile
+    bnd_ctrl_dst = ROOT_DIR / "boundary" / "config" / "controller.hcl"
+    if bnd_ctrl_src.exists():
+        content = bnd_ctrl_src.read_text(encoding="utf-8")
+        for k, v in os.environ.items():
+            content = content.replace(f"${{{k}}}", v)
+        bnd_ctrl_dst.write_text(content, encoding="utf-8")
+        print(f"{GREEN}[+] Injected Boundary Controller profile: {bnd_ctrl_profile} -> boundary/config/controller.hcl{RESET}")
+
+    # 3. Inject Boundary Worker config
+    bnd_worker_profile = "worker-gcp-kms.hcl" if seal_type == "gcpkms" else "worker-local-aead.hcl"
+    bnd_worker_src = ROOT_DIR / "boundary" / "config" / "profiles" / bnd_worker_profile
+    bnd_worker_dst = ROOT_DIR / "boundary" / "config" / "worker.hcl"
+    if bnd_worker_src.exists():
+        content = bnd_worker_src.read_text(encoding="utf-8")
+        for k, v in os.environ.items():
+            content = content.replace(f"${{{k}}}", v)
+        bnd_worker_dst.write_text(content, encoding="utf-8")
+        print(f"{GREEN}[+] Injected Boundary Worker profile: {bnd_worker_profile} -> boundary/config/worker.hcl{RESET}")
+
+    # Update .env SEAL_TYPE if changed
+    if env_file.exists():
+        lines = env_file.read_text(encoding="utf-8").splitlines()
+        new_lines = []
+        found_seal = False
+        for l in lines:
+            if l.strip().startswith("SEAL_TYPE="):
+                new_lines.append(f"SEAL_TYPE={seal_type}")
+                found_found = True
+            else:
+                new_lines.append(l)
+        if not found_seal:
+            new_lines.insert(6, f"SEAL_TYPE={seal_type}")
+        env_file.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+
+    return seal_type
+
 def check_postgres_ready(timeout=30):
     """Waits for PostgreSQL to accept connections."""
     print(f"{CYAN}[*] Waiting for PostgreSQL backend (port 5432)...{RESET}")
@@ -232,7 +349,6 @@ def init_openbao():
     """Initializes and unseals OpenBao, setting up SSH CA."""
     print(f"{CYAN}[*] Initializing and unsealing OpenBao & SSH CA...{RESET}")
     run_cmd("docker compose up -d openbao", check=True)
-    # Wait for health
     time.sleep(2)
     run_cmd("docker compose exec -T openbao /bin/sh /openbao/scripts/init-openbao-ssh-ca.sh", check=False)
     print(f"{GREEN}[+] OpenBao SSH CA setup finished.{RESET}")
@@ -254,6 +370,9 @@ def bootstrap():
     print(f"{BOLD}{CYAN}================================================================================{RESET}\n")
     
     ensure_env_file()
+    
+    # 0.1 Prompt and inject SEAL backend profile (Local vs GCP Cloud KMS)
+    prompt_and_configure_seal_backend(interactive=True)
     
     # 1. Start Postgres & Wait
     run_cmd("docker compose up -d postgres", check=True)
@@ -306,15 +425,21 @@ def check_service_status():
 
 def main():
     parser = argparse.ArgumentParser(description="Overseer Control Plane Lifecycle Orchestrator")
-    parser.add_argument("action", choices=["bootstrap", "up", "preflight", "status", "down", "init-openbao", "init-boundary", "init-semaphore"], help="Action to perform")
+    parser.add_argument("action", choices=["bootstrap", "up", "preflight", "status", "down", "init-openbao", "init-boundary", "init-semaphore", "configure-seal"], help="Action to perform")
+    parser.add_argument("--seal-type", choices=["local", "gcpkms"], default=None, help="Force specific seal backend (local or gcpkms)")
     
     args = parser.parse_args()
     
+    if args.seal_type:
+        os.environ["SEAL_TYPE"] = args.seal_type
+
     if args.action in ["bootstrap", "up"]:
         bootstrap()
     elif args.action == "preflight":
         passed = run_preflight_checks(exit_on_failure=False)
         sys.exit(0 if passed else 1)
+    elif args.action == "configure-seal":
+        prompt_and_configure_seal_backend(interactive=False)
     elif args.action == "status":
         sys.exit(check_service_status())
     elif args.action == "down":

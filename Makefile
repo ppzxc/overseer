@@ -3,7 +3,7 @@
         start-boundary stop-boundary restart-boundary init-boundary \
         start-semaphore stop-semaphore restart-semaphore init-semaphore \
         start-postgres stop-postgres restart-postgres init-postgres \
-        spec-check test test-e2e clean
+        configure-seal spec-check test test-e2e clean
 
 # Default Target
 help:
@@ -12,6 +12,7 @@ help:
 	@echo "================================================================================"
 	@echo "  make preflight                - Run pre-flight checks (tools, permissions, ports)"
 	@echo "  make up / bootstrap           - Start & bootstrap all Control Plane components"
+	@echo "  make configure-seal           - Apply KMS seal/unseal profile (local / gcpkms)"
 	@echo "  make down                     - Stop all Control Plane components"
 	@echo "  make restart                  - Restart all Control Plane components"
 	@echo "  make status                   - Check health of OpenBao, Boundary, Postgres, Semaphore"
@@ -43,6 +44,9 @@ ensure-semaphore-db: wait-postgres
 	@docker compose exec -T postgres psql -U boundary -d postgres -tc "SELECT 1 FROM pg_database WHERE datname = 'semaphore'" | grep -q 1 || \
 	docker compose exec -T postgres psql -U boundary -d postgres -c "CREATE DATABASE semaphore;" >/dev/null 2>&1 || true
 
+configure-seal: env-file
+	@./scripts/orchestrator.py configure-seal
+
 # ------------------------------------------------------------------------------
 # Full Stack (Unified)
 # ------------------------------------------------------------------------------
@@ -67,7 +71,7 @@ logs:
 # ------------------------------------------------------------------------------
 # OpenBao
 # ------------------------------------------------------------------------------
-start-openbao: env-file
+start-openbao: env-file configure-seal
 	@docker compose up -d openbao
 	@./scripts/orchestrator.py init-openbao
 
@@ -77,13 +81,13 @@ stop-openbao:
 restart-openbao:
 	@docker compose restart openbao
 
-init-openbao: env-file
+init-openbao: env-file configure-seal
 	@./scripts/orchestrator.py init-openbao
 
 # ------------------------------------------------------------------------------
 # Boundary
 # ------------------------------------------------------------------------------
-start-boundary: env-file init-postgres
+start-boundary: env-file configure-seal init-postgres
 	@docker compose up -d boundary-controller boundary-worker
 
 stop-boundary:
@@ -92,7 +96,7 @@ stop-boundary:
 restart-boundary:
 	@docker compose restart boundary-controller boundary-worker
 
-init-boundary: env-file init-postgres
+init-boundary: env-file configure-seal init-postgres
 	@./scripts/orchestrator.py init-boundary
 
 # ------------------------------------------------------------------------------
