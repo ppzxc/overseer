@@ -2,8 +2,9 @@
 disable_mlock = true
 
 controller {
-  name        = "overseer-controller"
-  description = "Overseer Main Boundary Controller (Local AEAD KMS)"
+  name                = "overseer-controller"
+  description         = "Overseer Main Boundary Controller (Local AEAD KMS)"
+  public_cluster_addr = "boundary-controller:9201"
   database {
     url = "env://BOUNDARY_POSTGRES_URL"
   }
