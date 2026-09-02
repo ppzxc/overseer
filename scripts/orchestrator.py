@@ -12,6 +12,8 @@ import subprocess
 import argparse
 import base64
 import secrets
+import string
+from pathlib import Path
 from typing import NamedTuple, List
 
 class CheckResult(NamedTuple):

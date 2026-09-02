@@ -176,7 +176,7 @@ def main():
     print(f"{'Spec ID':<16} | {'Domain':<14} | {'Docs':<6} | {'Code':<6} | {'Test Mapping'}")
     print("-" * 80)
     for s_id in all_ids:
-        cat = specs.get(spec_id if (spec_id := s_id) in specs else "", ("", "", "Unknown"))[2]
+        cat = specs.get(s_id, ("", "", "Unknown"))[2]
         d_status = "OK" if s_id in specs else "FAIL"
         c_status = "OK" if s_id in code_items else "FAIL"
         t_status = test_mappings.get(s_id, "Integrated")
