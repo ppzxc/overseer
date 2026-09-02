@@ -3,11 +3,15 @@ set -e
 
 # ==============================================================================
 # Overseer OpenBao Initialization & SSH CA Setup Script
-# Supports both Local Shamir Seal and Auto-Unseal (e.g. GCP Cloud KMS)
+# Supports:
+#   - Local Shamir Auto-Unseal (persisted key)
+#   - Local Shamir Manual-Unseal (ephemeral key / user input)
+#   - Cloud Auto-Unseal (GCP Cloud KMS recovery keys)
 # ==============================================================================
 
 BAO_ADDR="${BAO_ADDR:-http://127.0.0.1:8200}"
 export BAO_ADDR
+SHAMIR_MODE="${OPENBAO_SHAMIR_MODE:-auto}"
 
 echo "[*] Connecting to OpenBao at ${BAO_ADDR}..."
 
@@ -28,15 +32,29 @@ if [ "${INIT_STATUS}" != "true" ]; then
     UNSEAL_KEY=$(echo "${INIT_RESP}" | jq -r '(.keys // .recovery_keys // [])[0] // empty')
     
     mkdir -p /openbao/data
-    echo "${INIT_RESP}" > /openbao/data/openbao-init.json
-    echo "[+] OpenBao initialized. Keys saved to /openbao/data/openbao-init.json"
     
-    # 2. 언실(Unseal) - Shamir 키가 존재할 때 수동 Unseal 수행
-    if echo "${INIT_RESP}" | jq -e '.keys | length > 0' >/dev/null 2>&1; then
-        echo "[*] Unsealing OpenBao with Shamir key..."
+    if [ "${SHAMIR_MODE}" = "manual" ]; then
+        echo "================================================================================"
+        echo " [IMPORTANT] OpenBao Initialized in MANUAL Key Management Mode!"
+        echo " Please securely copy and backup your unseal key and root token below."
+        echo " This key file will NOT be stored on disk!"
+        echo "--------------------------------------------------------------------------------"
+        echo " UNSEAL KEY  : ${UNSEAL_KEY}"
+        echo " ROOT TOKEN  : ${ROOT_TOKEN}"
+        echo "================================================================================"
+        # Unseal initial instance
         curl -s -X POST "${BAO_ADDR}/v1/sys/unseal" -d "{\"key\": \"${UNSEAL_KEY}\"}" >/dev/null
     else
-        echo "[+] OpenBao is configured with Auto-Unseal (Recovery keys generated). Waiting for auto-unseal..."
+        echo "${INIT_RESP}" > /openbao/data/openbao-init.json
+        echo "[+] OpenBao initialized. Keys saved to /openbao/data/openbao-init.json"
+        
+        # 2. 언실(Unseal) - Shamir 키가 존재할 때 수동 Unseal 수행
+        if echo "${INIT_RESP}" | jq -e '.keys | length > 0' >/dev/null 2>&1; then
+            echo "[*] Unsealing OpenBao with Shamir key..."
+            curl -s -X POST "${BAO_ADDR}/v1/sys/unseal" -d "{\"key\": \"${UNSEAL_KEY}\"}" >/dev/null
+        else
+            echo "[+] OpenBao is configured with Auto-Unseal (Recovery keys generated). Waiting for auto-unseal..."
+        fi
     fi
 else
     echo "[*] OpenBao is already initialized."
@@ -48,6 +66,10 @@ else
         if jq -e '.keys | length > 0' /openbao/data/openbao-init.json >/dev/null 2>&1; then
             curl -s -X POST "${BAO_ADDR}/v1/sys/unseal" -d "{\"key\": \"${UNSEAL_KEY}\"}" >/dev/null 2>&1 || true
         fi
+    elif [ -n "${PROVIDED_UNSEAL_KEY}" ]; then
+        echo "[*] Unsealing with provided unseal key..."
+        curl -s -X POST "${BAO_ADDR}/v1/sys/unseal" -d "{\"key\": \"${PROVIDED_UNSEAL_KEY}\"}" >/dev/null 2>&1 || true
+        ROOT_TOKEN="${BAO_TOKEN}"
     fi
 fi
 

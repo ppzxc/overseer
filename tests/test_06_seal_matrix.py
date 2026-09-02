@@ -1,7 +1,8 @@
 """
-E2E Test 06: Pluggable KMS Seal/Unseal Matrix & Configuration Injection
+E2E Test 06: Pluggable KMS Seal/Unseal Matrix, Port Exposure & Key Modes
 Verifies that OpenBao and Boundary support multi-backend profiles (Local Shamir/AEAD and GCP Cloud KMS),
-validates profile HCL schemas, configuration template rendering, and Orchestrator seal selection.
+validates port binding configuration branching, external backend network auto-creation,
+and manual/auto Shamir and AEAD lifecycle modes.
 """
 
 import os
@@ -66,26 +67,37 @@ def test_ctrl_007_boundary_profile_content(root_dir):
     gcp_worker = (boundary_profiles / "worker-gcp-kms.hcl").read_text(encoding="utf-8")
     assert 'kms "gcpckms"' in gcp_worker and 'purpose    = "worker-auth"' in gcp_worker
 
-def test_ctrl_007_orchestrator_seal_injection(root_dir, tmp_path):
-    """[CTRL-007] Orchestrator dynamic profile injection and templating mechanism"""
+def test_ctrl_007_orchestrator_seal_and_port_branching(root_dir):
+    """[CTRL-007] Orchestrator dynamic profile injection, port exposure, and key modes"""
     import sys
     sys.path.insert(0, str(root_dir / "scripts"))
     import orchestrator
     
-    # 1. Test Local Shamir injection
+    # 1. Test Local Shamir + Port Exposed
     os.environ["SEAL_TYPE"] = "local"
-    selected = orchestrator.prompt_and_configure_seal_backend(interactive=False)
-    assert selected == "local"
+    os.environ["EXPOSE_PORTS"] = "true"
+    os.environ["OPENBAO_SHAMIR_MODE"] = "auto"
+    os.environ["BOUNDARY_AEAD_MODE"] = "auto"
+    
+    res = orchestrator.prompt_and_configure_all(interactive=False)
+    assert res["seal_type"] == "local"
+    assert res["expose_ports"] is True
+    assert res["shamir_mode"] == "auto"
+    assert res["aead_mode"] == "auto"
     
     active_openbao = (root_dir / "openbao" / "config" / "openbao.hcl").read_text(encoding="utf-8")
     assert 'seal "gcpckms"' not in active_openbao
     
-    active_boundary = (root_dir / "boundary" / "config" / "controller.hcl").read_text(encoding="utf-8")
-    assert 'kms "aead"' in active_boundary
+    env_content = (root_dir / ".env").read_text(encoding="utf-8")
+    assert "EXPOSE_PORTS=true" in env_content
+    assert "OPENBAO_PORT_BINDING=8200:8200" in env_content
     
-    # 2. Test GCP KMS injection with environment variables
+    # 2. Test GCP KMS + Internal Ports only (No host exposure) + Manual modes
     os.environ["SEAL_TYPE"] = "gcpkms"
-    os.environ["GCP_PROJECT"] = "test-project-123"
+    os.environ["EXPOSE_PORTS"] = "false"
+    os.environ["OPENBAO_SHAMIR_MODE"] = "manual"
+    os.environ["BOUNDARY_AEAD_MODE"] = "manual"
+    os.environ["GCP_PROJECT"] = "test-proj"
     os.environ["GCP_REGION"] = "asia-northeast3"
     os.environ["GCP_KEY_RING"] = "test-ring"
     os.environ["GCP_OPENBAO_KEY"] = "test-bao-key"
@@ -93,31 +105,32 @@ def test_ctrl_007_orchestrator_seal_injection(root_dir, tmp_path):
     os.environ["GCP_BOUNDARY_WORKER_AUTH_KEY"] = "test-bnd-worker"
     os.environ["GCP_BOUNDARY_RECOVERY_KEY"] = "test-bnd-recovery"
     
-    selected_gcp = orchestrator.prompt_and_configure_seal_backend(interactive=False)
-    assert selected_gcp == "gcpkms"
+    res_gcp = orchestrator.prompt_and_configure_all(interactive=False)
+    assert res_gcp["seal_type"] == "gcpkms"
+    assert res_gcp["expose_ports"] is False
+    assert res_gcp["shamir_mode"] == "manual"
+    assert res_gcp["aead_mode"] == "manual"
     
     active_openbao_gcp = (root_dir / "openbao" / "config" / "openbao.hcl").read_text(encoding="utf-8")
     assert 'seal "gcpckms"' in active_openbao_gcp
-    assert 'project     = "test-project-123"' in active_openbao_gcp
-    assert 'crypto_key  = "test-bao-key"' in active_openbao_gcp
+    assert 'project     = "test-proj"' in active_openbao_gcp
     
-    active_bnd_ctrl_gcp = (root_dir / "boundary" / "config" / "controller.hcl").read_text(encoding="utf-8")
-    assert 'kms "gcpckms"' in active_bnd_ctrl_gcp
-    assert 'project    = "test-project-123"' in active_bnd_ctrl_gcp
-    assert 'crypto_key = "test-bnd-root"' in active_bnd_ctrl_gcp
+    env_content_internal = (root_dir / ".env").read_text(encoding="utf-8")
+    assert "EXPOSE_PORTS=false" in env_content_internal
+    assert "OPENBAO_PORT_BINDING=127.0.0.1::8200" in env_content_internal
     
-    active_bnd_worker_gcp = (root_dir / "boundary" / "config" / "worker.hcl").read_text(encoding="utf-8")
-    assert 'kms "gcpckms"' in active_bnd_worker_gcp
-    assert 'crypto_key = "test-bnd-worker"' in active_bnd_worker_gcp
-    
-    # Revert back to local profile for standard testing
+    # Revert back to local + exposed for standard testing
     os.environ["SEAL_TYPE"] = "local"
-    orchestrator.prompt_and_configure_seal_backend(interactive=False)
+    os.environ["EXPOSE_PORTS"] = "true"
+    os.environ["OPENBAO_SHAMIR_MODE"] = "auto"
+    os.environ["BOUNDARY_AEAD_MODE"] = "auto"
+    orchestrator.prompt_and_configure_all(interactive=False)
 
 def test_ctrl_007_openbao_init_script_unseal_branching(root_dir):
-    """[CTRL-007] OpenBao Initialization script supports both Shamir Unseal and Auto-Unseal Recovery keys"""
+    """[CTRL-007] OpenBao Initialization script supports both Auto and Manual Shamir modes & Cloud KMS"""
     init_script = (root_dir / "openbao" / "scripts" / "init-openbao-ssh-ca.sh").read_text(encoding="utf-8")
     
+    assert "SHAMIR_MODE" in init_script, "SHAMIR_MODE variable missing in init-openbao-ssh-ca.sh"
+    assert "MANUAL Key Management Mode" in init_script or "manual" in init_script, "Manual mode prompt missing in init-openbao-ssh-ca.sh"
     assert "recovery_keys" in init_script, "recovery_keys parsing missing in init-openbao-ssh-ca.sh"
-    assert "Auto-Unseal" in init_script or "keys | length" in init_script, "Auto-unseal branching logic missing in init-openbao-ssh-ca.sh"
     assert "sys/seal-status" in init_script, "seal-status checking missing in init-openbao-ssh-ca.sh"

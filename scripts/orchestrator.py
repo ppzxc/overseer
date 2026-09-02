@@ -3,7 +3,7 @@
 Overseer Control Plane Lifecycle & Bootstrap Orchestrator
 Provides a deep, unified interface for full-stack service initialization,
 dependency-aware healthchecks, automated database migrations, pluggable SEAL/UNSEAL profiles,
-and OpenBao/Semaphore seeding.
+port exposure branching, external network bootstrapping, and manual/auto key management.
 """
 
 import os
@@ -85,10 +85,20 @@ def run_cmd(cmd, check=True, capture=False, env=None):
         env=full_env
     )
 
+def ensure_backend_network():
+    """Ensures the external 'backend' Docker network exists."""
+    res = subprocess.run("docker network inspect backend", shell=True, capture_output=True, text=True)
+    if res.returncode != 0:
+        print(f"{CYAN}[*] External Docker network 'backend' not found. Creating 'backend'...{RESET}")
+        run_cmd("docker network create backend", check=True)
+        print(f"{GREEN}[+] Docker network 'backend' successfully created.{RESET}")
+    else:
+        print(f"{GREEN}[+] Docker external network 'backend' is ready.{RESET}")
+
 def run_preflight_checks(exit_on_failure=True):
     """
     Validates host environment, non-root user permissions, required CLI utilities,
-    directory writeability, and port availability before running bootstrap.
+    directory writeability, backend network presence, and port availability.
     """
     import socket
     print(f"\n{BOLD}{CYAN}================================================================================{RESET}")
@@ -137,29 +147,38 @@ def run_preflight_checks(exit_on_failure=True):
         remediation = f"Fix permissions: sudo mkdir -p {data_dir}/{{{','.join(required_subs)}}} && sudo chown -R $USER:dockermgmt {data_dir} && sudo chmod -R 775 {data_dir} (or set DATA_DIR=./data in .env for local testing)"
         checks.append(CheckResult("Filesystem", f"Data Dir ({data_dir})", False, str(e), remediation))
 
-    # 5. Port Availability & Conflicts
-    ports_to_check = [
-        (8200, "OpenBao Web / API"),
-        (9200, "Boundary Controller API"),
-        (9201, "Boundary Controller Cluster"),
-        (9202, "Boundary Worker Proxy"),
-        (3000, "Semaphore Web UI"),
-    ]
-    running_containers_res = subprocess.run("docker compose ps -q", shell=True, capture_output=True, text=True, cwd=str(ROOT_DIR))
-    overseer_containers_running = bool(running_containers_res.stdout.strip())
+    # 5. External Network Check & Auto-Creation
+    try:
+        ensure_backend_network()
+        checks.append(CheckResult("Network", "External Docker Network 'backend'", True, "Ready", ""))
+    except Exception as e:
+        checks.append(CheckResult("Network", "External Docker Network 'backend'", False, str(e), "Run: docker network create backend"))
 
-    for port, service_desc in ports_to_check:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(0.5)
-        conn_res = sock.connect_ex(("127.0.0.1", port))
-        sock.close()
-        if conn_res == 0:
-            if overseer_containers_running:
-                checks.append(CheckResult("Port Status", f"Port {port} ({service_desc})", True, "In use (Overseer active)", ""))
+    # 6. Port Availability & Conflicts (if EXPOSE_PORTS is not false)
+    expose_ports = os.getenv("EXPOSE_PORTS", "true").lower() != "false"
+    if expose_ports:
+        ports_to_check = [
+            (8200, "OpenBao Web / API"),
+            (9200, "Boundary Controller API"),
+            (9201, "Boundary Controller Cluster"),
+            (9202, "Boundary Worker Proxy"),
+            (3000, "Semaphore Web UI"),
+        ]
+        running_containers_res = subprocess.run("docker compose ps -q", shell=True, capture_output=True, text=True, cwd=str(ROOT_DIR))
+        overseer_containers_running = bool(running_containers_res.stdout.strip())
+
+        for port, service_desc in ports_to_check:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(0.5)
+            conn_res = sock.connect_ex(("127.0.0.1", port))
+            sock.close()
+            if conn_res == 0:
+                if overseer_containers_running:
+                    checks.append(CheckResult("Port Status", f"Port {port} ({service_desc})", True, "In use (Overseer active)", ""))
+                else:
+                    checks.append(CheckResult("Port Conflict", f"Port {port} ({service_desc})", False, "Already in use by foreign process", f"Stop conflicting service on port {port}"))
             else:
-                checks.append(CheckResult("Port Conflict", f"Port {port} ({service_desc})", False, "Already in use by foreign process", f"Stop conflicting service on port {port}"))
-        else:
-            checks.append(CheckResult("Port Status", f"Port {port} ({service_desc})", True, "Available", ""))
+                checks.append(CheckResult("Port Status", f"Port {port} ({service_desc})", True, "Available", ""))
 
     # Print Table
     print(f"{'Category':<15} | {'Check Item':<35} | {'Status':<6} | {'Details'}")
@@ -195,7 +214,6 @@ def ensure_env_file():
         print(f"{CYAN}[*] Generating fresh .env with unique cryptographic keys...{RESET}")
         content = example.read_text(encoding="utf-8")
         
-        # Cryptographically secure random keys & passwords
         postgres_password = generate_random_password(18)
         semaphore_admin_password = generate_random_password(18)
         boundary_kms_root_key = generate_base64_key(32)
@@ -203,7 +221,6 @@ def ensure_env_file():
         boundary_kms_recovery_key = generate_base64_key(32)
         semaphore_encryption_key = generate_base64_key(32)
         
-        # Replace default placeholder credentials
         content = content.replace("POSTGRES_PASSWORD=boundarypassword", f"POSTGRES_PASSWORD={postgres_password}")
         content = content.replace("postgresql://boundary:boundarypassword@", f"postgresql://boundary:{postgres_password}@")
         content = content.replace("BOUNDARY_KMS_AEAD_ROOT_KEY=sP191WKGvgcuEmhdREQBPBG5nhAAda4e+bQQnFRinCU=", f"BOUNDARY_KMS_AEAD_ROOT_KEY={boundary_kms_root_key}")
@@ -215,34 +232,115 @@ def ensure_env_file():
         env_file.write_text(content, encoding="utf-8")
         print(f"{GREEN}[+] Fresh .env created with newly generated 32-byte KMS/encryption keys and passwords.{RESET}")
 
-def prompt_and_configure_seal_backend(interactive=True):
-    """
-    Selects, validates, and injects the active configuration profiles for OpenBao & Boundary
-    based on the chosen SEAL_TYPE (local or gcpkms).
-    """
-    seal_type = get_configured_seal_type()
+def configure_port_binding(expose_ports=True):
+    """Configures port binding in environment variables."""
+    env_file = ROOT_DIR / ".env"
+    if not env_file.exists():
+        return
     
-    # If interactive and running in a TTY, prompt user unless explicitly overridden via env
-    if interactive and sys.stdin.isatty() and not os.getenv("SEAL_TYPE"):
+    lines = env_file.read_text(encoding="utf-8").splitlines()
+    new_lines = []
+    
+    ports_map = {
+        "OPENBAO_PORT_BINDING": "8200:8200" if expose_ports else "127.0.0.1::8200",
+        "BOUNDARY_CONTROLLER_API_PORT": "9200:9200" if expose_ports else "127.0.0.1::9200",
+        "BOUNDARY_CONTROLLER_CLUSTER_PORT": "9201:9201" if expose_ports else "127.0.0.1::9201",
+        "BOUNDARY_WORKER_PROXY_PORT": "9202:9202" if expose_ports else "127.0.0.1::9202",
+        "SEMAPHORE_PORT_BINDING": "3000:3000" if expose_ports else "127.0.0.1::3000",
+        "EXPOSE_PORTS": "true" if expose_ports else "false",
+    }
+    
+    updated_keys = set()
+    for l in lines:
+        matched = False
+        for k, v in ports_map.items():
+            if l.strip().startswith(f"{k}="):
+                new_lines.append(f"{k}={v}")
+                updated_keys.add(k)
+                matched = True
+                break
+        if not matched:
+            new_lines.append(l)
+            
+    for k, v in ports_map.items():
+        if k not in updated_keys:
+            new_lines.insert(6, f"{k}={v}")
+            
+    env_file.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+    for k, v in ports_map.items():
+        os.environ[k] = v
+
+def prompt_and_configure_all(interactive=True):
+    """
+    Prompts (if interactive) and configures:
+    1. Port binding exposure (Host exposed vs Internal backend only)
+    2. Seal backend profile (Local vs GCP Cloud KMS)
+    3. OpenBao Shamir Mode (Auto persistent vs Manual ephemeral)
+    4. Boundary AEAD Mode (Auto persistent vs Manual ephemeral)
+    """
+    ensure_env_file()
+    
+    seal_type = get_configured_seal_type()
+    expose_ports = os.getenv("EXPOSE_PORTS", "true").lower() != "false"
+    shamir_mode = os.getenv("OPENBAO_SHAMIR_MODE", "auto").lower()
+    aead_mode = os.getenv("BOUNDARY_AEAD_MODE", "auto").lower()
+    
+    if interactive and sys.stdin.isatty():
         print(f"\n{BOLD}{CYAN}================================================================================{RESET}")
-        print(f"{BOLD}{CYAN}            Select KMS Seal & Unseal Backend for Control Plane                  {RESET}")
-        print(f"{BOLD}{CYAN}================================================================================{RESET}")
-        print("  1) Local (Shamir Key Unseal & Local AEAD KMS) [Default]")
-        print("  2) GCP Cloud KMS (Auto-Unseal & Cloud KMS Key Management)")
-        print("-" * 80)
+        print(f"{BOLD}{CYAN}              Overseer Control Plane Configuration Setup                        {RESET}")
+        print(f"{BOLD}{CYAN}================================================================================{RESET}\n")
         
+        # 1. Port Exposure Question
+        print(f"{BOLD}1. Host Port Exposure Mode:{RESET}")
+        print("   [1] Bind ports to Host (8200, 9200, 9201, 9202, 3000) [Default]")
+        print("   [2] Internal Only (No host port binding, communication via 'backend' network)")
         try:
-            choice = input(f"Enter choice [1/2] (default 1): ").strip()
-            if choice == "2":
-                seal_type = "gcpkms"
-            else:
-                seal_type = "local"
+            p_choice = input("Select [1/2] (default 1): ").strip()
+            expose_ports = False if p_choice == "2" else True
+        except (EOFError, KeyboardInterrupt):
+            expose_ports = True
+
+        # 2. Seal Backend Profile Question
+        print(f"\n{BOLD}2. KMS Seal/Unseal Backend Profile:{RESET}")
+        print("   [1] Local (Shamir / Local AEAD KMS) [Default]")
+        print("   [2] GCP Cloud KMS (Auto-Unseal & Cloud KMS)")
+        try:
+            s_choice = input("Select [1/2] (default 1): ").strip()
+            seal_type = "gcpkms" if s_choice == "2" else "local"
         except (EOFError, KeyboardInterrupt):
             seal_type = "local"
 
-    print(f"{CYAN}[*] Applying Control Plane Seal Profile: {BOLD}{seal_type.upper()}{RESET}...")
+        if seal_type == "local":
+            # 3. OpenBao Shamir Mode Question
+            print(f"\n{BOLD}3. OpenBao Shamir Key Management Mode:{RESET}")
+            print("   [1] Auto (Unseal key saved to disk, automated unseal on restart) [Default]")
+            print("   [2] Manual (Display key once in terminal, not saved to disk, manual input on restart)")
+            try:
+                sh_choice = input("Select [1/2] (default 1): ").strip()
+                shamir_mode = "manual" if sh_choice == "2" else "auto"
+            except (EOFError, KeyboardInterrupt):
+                shamir_mode = "auto"
+
+            # 4. Boundary AEAD Mode Question
+            print(f"\n{BOLD}4. Boundary AEAD KMS Key Management Mode:{RESET}")
+            print("   [1] Auto (AEAD keys persisted in .env) [Default]")
+            print("   [2] Manual (Display keys once, clear from .env, session injection required on restart)")
+            try:
+                ae_choice = input("Select [1/2] (default 1): ").strip()
+                aead_mode = "manual" if ae_choice == "2" else "auto"
+            except (EOFError, KeyboardInterrupt):
+                aead_mode = "auto"
+        print("-" * 80)
+
+    # Apply Port Binding
+    configure_port_binding(expose_ports)
     
-    # Load .env variables into memory for template expansion
+    # Save modes to os.environ
+    os.environ["SEAL_TYPE"] = seal_type
+    os.environ["OPENBAO_SHAMIR_MODE"] = shamir_mode
+    os.environ["BOUNDARY_AEAD_MODE"] = aead_mode
+    
+    # Read .env to memory
     env_vars = {}
     env_file = ROOT_DIR / ".env"
     if env_file.exists():
@@ -251,33 +349,23 @@ def prompt_and_configure_seal_backend(interactive=True):
             if line and not line.startswith("#") and "=" in line:
                 k, v = line.split("=", 1)
                 env_vars[k.strip()] = v.strip().strip('"').strip("'")
-    
-    # Update os.environ with env_vars
+                
     for k, v in env_vars.items():
         if k not in os.environ:
             os.environ[k] = v
 
-    # Validate GCP KMS parameters if gcpkms is selected
-    if seal_type == "gcpkms":
-        required_gcp_vars = ["GCP_PROJECT", "GCP_REGION", "GCP_KEY_RING", "GCP_OPENBAO_KEY"]
-        missing = [v for v in required_gcp_vars if not os.getenv(v)]
-        if missing:
-            print(f"{YELLOW}[!] Warning: GCP KMS parameters not fully set in .env: {', '.join(missing)}{RESET}")
-            print(f"{YELLOW}[!] Using template placeholders. Ensure GCP credentials & permissions exist.{RESET}")
-
-    # 1. Inject OpenBao config
+    # Inject OpenBao config
     openbao_profile = "gcp-kms.hcl" if seal_type == "gcpkms" else "local-shamir.hcl"
     openbao_src = ROOT_DIR / "openbao" / "config" / "profiles" / openbao_profile
     openbao_dst = ROOT_DIR / "openbao" / "config" / "openbao.hcl"
     if openbao_src.exists():
         content = openbao_src.read_text(encoding="utf-8")
-        # Template substitution
         for k, v in os.environ.items():
             content = content.replace(f"${{{k}}}", v)
         openbao_dst.write_text(content, encoding="utf-8")
         print(f"{GREEN}[+] Injected OpenBao profile: {openbao_profile} -> openbao/config/openbao.hcl{RESET}")
 
-    # 2. Inject Boundary Controller config
+    # Inject Boundary Controller config
     bnd_ctrl_profile = "gcp-kms.hcl" if seal_type == "gcpkms" else "local-aead.hcl"
     bnd_ctrl_src = ROOT_DIR / "boundary" / "config" / "profiles" / bnd_ctrl_profile
     bnd_ctrl_dst = ROOT_DIR / "boundary" / "config" / "controller.hcl"
@@ -288,7 +376,7 @@ def prompt_and_configure_seal_backend(interactive=True):
         bnd_ctrl_dst.write_text(content, encoding="utf-8")
         print(f"{GREEN}[+] Injected Boundary Controller profile: {bnd_ctrl_profile} -> boundary/config/controller.hcl{RESET}")
 
-    # 3. Inject Boundary Worker config
+    # Inject Boundary Worker config
     bnd_worker_profile = "worker-gcp-kms.hcl" if seal_type == "gcpkms" else "worker-local-aead.hcl"
     bnd_worker_src = ROOT_DIR / "boundary" / "config" / "profiles" / bnd_worker_profile
     bnd_worker_dst = ROOT_DIR / "boundary" / "config" / "worker.hcl"
@@ -299,26 +387,28 @@ def prompt_and_configure_seal_backend(interactive=True):
         bnd_worker_dst.write_text(content, encoding="utf-8")
         print(f"{GREEN}[+] Injected Boundary Worker profile: {bnd_worker_profile} -> boundary/config/worker.hcl{RESET}")
 
-    # Update .env SEAL_TYPE if changed
-    if env_file.exists():
-        lines = env_file.read_text(encoding="utf-8").splitlines()
-        new_lines = []
-        found_seal = False
-        for l in lines:
-            if l.strip().startswith("SEAL_TYPE="):
-                new_lines.append(f"SEAL_TYPE={seal_type}")
-                found_found = True
-            else:
-                new_lines.append(l)
-        if not found_seal:
-            new_lines.insert(6, f"SEAL_TYPE={seal_type}")
-        env_file.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+    # If Manual AEAD Mode is chosen, show keys and remove from .env
+    if aead_mode == "manual":
+        print(f"\n{BOLD}{YELLOW}================================================================================{RESET}")
+        print(f"{BOLD}{YELLOW} [IMPORTANT] Boundary Initialized in MANUAL Key Management Mode!                {RESET}")
+        print(f"{BOLD}{YELLOW} Please securely copy and backup your AEAD KMS keys below.                      {RESET}")
+        print(f"{BOLD}{YELLOW} These keys will be removed from .env file for zero-knowledge safety.           {RESET}")
+        print(f"--------------------------------------------------------------------------------")
+        print(f" BOUNDARY_KMS_AEAD_ROOT_KEY        : {os.getenv('BOUNDARY_KMS_AEAD_ROOT_KEY')}")
+        print(f" BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY : {os.getenv('BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY')}")
+        print(f" BOUNDARY_KMS_AEAD_RECOVERY_KEY    : {os.getenv('BOUNDARY_KMS_AEAD_RECOVERY_KEY')}")
+        print(f"================================================================================\n")
 
-    return seal_type
+    return {
+        "seal_type": seal_type,
+        "expose_ports": expose_ports,
+        "shamir_mode": shamir_mode,
+        "aead_mode": aead_mode
+    }
 
 def check_postgres_ready(timeout=30):
     """Waits for PostgreSQL to accept connections."""
-    print(f"{CYAN}[*] Waiting for PostgreSQL backend (port 5432)...{RESET}")
+    print(f"{CYAN}[*] Waiting for PostgreSQL backend (service postgres)...{RESET}")
     start = time.time()
     while time.time() - start < timeout:
         res = run_cmd("docker compose exec -T postgres pg_isready -U boundary", check=False, capture=True)
@@ -362,17 +452,15 @@ def init_semaphore():
 
 def bootstrap():
     """Full end-to-end bootstrap of all Control Plane services."""
-    # 0. Pre-Flight Prerequisites Validation
+    # 0. Pre-Flight Prerequisites Validation (including backend network)
     run_preflight_checks(exit_on_failure=True)
 
     print(f"\n{BOLD}{CYAN}================================================================================{RESET}")
     print(f"{BOLD}{CYAN}           Overseer Control Plane Full-Stack Bootstrap Starting         {RESET}")
     print(f"{BOLD}{CYAN}================================================================================{RESET}\n")
     
-    ensure_env_file()
-    
-    # 0.1 Prompt and inject SEAL backend profile (Local vs GCP Cloud KMS)
-    prompt_and_configure_seal_backend(interactive=True)
+    # 0.1 Prompt and configure all modular options
+    prompt_and_configure_all(interactive=True)
     
     # 1. Start Postgres & Wait
     run_cmd("docker compose up -d postgres", check=True)
@@ -404,9 +492,9 @@ def check_service_status():
     
     services = [
         ("1. PostgreSQL (5432)", "docker compose exec -T postgres pg_isready -U boundary", "tcp"),
-        ("2. OpenBao API (8200)", "curl -s http://127.0.0.1:8200/v1/sys/health", "http"),
-        ("3. Boundary Controller (9200)", "curl -s http://127.0.0.1:9200/v1/health", "http"),
-        ("4. Semaphore UI (3000)", "curl -s http://127.0.0.1:3000/api/ping", "http"),
+        ("2. OpenBao API (8200)", "docker compose exec -T openbao bao status -address=http://127.0.0.1:8200", "cli"),
+        ("3. Boundary Controller (9200)", "curl -s http://127.0.0.1:9200/v1/health || docker compose exec -T boundary-controller /bin/sh -c 'curl -s http://127.0.0.1:9200/v1/health'", "http"),
+        ("4. Semaphore UI (3000)", "curl -s http://127.0.0.1:3000/api/ping || docker compose exec -T semaphore /bin/sh -c 'nc -z 127.0.0.1 3000'", "http"),
     ]
     
     all_healthy = True
@@ -426,12 +514,21 @@ def check_service_status():
 def main():
     parser = argparse.ArgumentParser(description="Overseer Control Plane Lifecycle Orchestrator")
     parser.add_argument("action", choices=["bootstrap", "up", "preflight", "status", "down", "init-openbao", "init-boundary", "init-semaphore", "configure-seal"], help="Action to perform")
-    parser.add_argument("--seal-type", choices=["local", "gcpkms"], default=None, help="Force specific seal backend (local or gcpkms)")
+    parser.add_argument("--seal-type", choices=["local", "gcpkms"], default=None, help="Force specific seal backend")
+    parser.add_argument("--expose-ports", choices=["true", "false"], default=None, help="Expose ports to host")
+    parser.add_argument("--shamir-mode", choices=["auto", "manual"], default=None, help="OpenBao shamir unseal mode")
+    parser.add_argument("--aead-mode", choices=["auto", "manual"], default=None, help="Boundary AEAD mode")
     
     args = parser.parse_args()
     
     if args.seal_type:
         os.environ["SEAL_TYPE"] = args.seal_type
+    if args.expose_ports:
+        os.environ["EXPOSE_PORTS"] = args.expose_ports
+    if args.shamir_mode:
+        os.environ["OPENBAO_SHAMIR_MODE"] = args.shamir_mode
+    if args.aead_mode:
+        os.environ["BOUNDARY_AEAD_MODE"] = args.aead_mode
 
     if args.action in ["bootstrap", "up"]:
         bootstrap()
@@ -439,7 +536,7 @@ def main():
         passed = run_preflight_checks(exit_on_failure=False)
         sys.exit(0 if passed else 1)
     elif args.action == "configure-seal":
-        prompt_and_configure_seal_backend(interactive=False)
+        prompt_and_configure_all(interactive=False)
     elif args.action == "status":
         sys.exit(check_service_status())
     elif args.action == "down":

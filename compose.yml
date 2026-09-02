@@ -1,8 +1,9 @@
+name: overseer
+
 services:
   # 1. Database (PostgreSQL for Boundary & Semaphore)
   postgres:
     image: postgres:15-alpine
-    container_name: overseer-postgres
     restart: unless-stopped
     shm_size: 256m
     deploy:
@@ -19,7 +20,7 @@ services:
     volumes:
       - ${DATA_DIR:-/data}/postgres:/var/lib/postgresql/data
     networks:
-      - overseer-net
+      - backend
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-boundary}"]
       interval: 5s
@@ -34,7 +35,6 @@ services:
   # 2. OpenBao Server
   openbao:
     image: openbao/openbao:2.1.0
-    container_name: overseer-openbao
     restart: unless-stopped
     deploy:
       resources:
@@ -46,7 +46,7 @@ services:
     cap_add:
       - IPC_LOCK
     ports:
-      - "8200:8200"
+      - "${OPENBAO_PORT_BINDING:-8200:8200}"
     environment:
       BAO_ADDR: "http://0.0.0.0:8200"
       BAO_API_ADDR: "http://127.0.0.1:8200"
@@ -58,7 +58,7 @@ services:
       - ${DATA_DIR:-/data}/credentials:/credentials:ro
     entrypoint: ["bao", "server", "-config=/openbao/config/openbao.hcl"]
     networks:
-      - overseer-net
+      - backend
     healthcheck:
       test: ["CMD", "bao", "status", "-address=http://127.0.0.1:8200"]
       interval: 10s
@@ -74,7 +74,6 @@ services:
   # 3. HashiCorp Boundary Controller
   boundary-controller:
     image: hashicorp/boundary:0.15
-    container_name: overseer-boundary-controller
     restart: unless-stopped
     deploy:
       resources:
@@ -87,13 +86,13 @@ services:
       postgres:
         condition: service_healthy
     ports:
-      - "9200:9200"
-      - "9201:9201"
+      - "${BOUNDARY_CONTROLLER_API_PORT:-9200:9200}"
+      - "${BOUNDARY_CONTROLLER_CLUSTER_PORT:-9201:9201}"
     environment:
       BOUNDARY_POSTGRES_URL: ${BOUNDARY_POSTGRES_URL:-postgresql://${POSTGRES_USER:-boundary}:${POSTGRES_PASSWORD:-boundarypassword}@postgres:5432/${POSTGRES_DB:-boundary}?sslmode=disable}
-      BOUNDARY_KMS_AEAD_ROOT_KEY: ${BOUNDARY_KMS_AEAD_ROOT_KEY:-sP191WKGvgcuEmhdREQBPBG5nhAAda4e+bQQnFRinCU=}
-      BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY: ${BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY:-8pv7uU8g58aN8y1n8PqR8G3z7rW+V8eY9nQ2x3Z1v4U=}
-      BOUNDARY_KMS_AEAD_RECOVERY_KEY: ${BOUNDARY_KMS_AEAD_RECOVERY_KEY:-uK382WKGvgcuEmhdREQBPBG5nhAAda4e+bQQnFRinCU=}
+      BOUNDARY_KMS_AEAD_ROOT_KEY: ${BOUNDARY_KMS_AEAD_ROOT_KEY:-}
+      BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY: ${BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY:-}
+      BOUNDARY_KMS_AEAD_RECOVERY_KEY: ${BOUNDARY_KMS_AEAD_RECOVERY_KEY:-}
       GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS:-}
     volumes:
       - ./boundary/config:/boundary/config:ro
@@ -102,7 +101,7 @@ services:
       - ${DATA_DIR:-/data}/credentials:/credentials:ro
     command: ["boundary", "server", "-config=/boundary/config/controller.hcl"]
     networks:
-      - overseer-net
+      - backend
     logging:
       driver: "json-file"
       options:
@@ -112,7 +111,6 @@ services:
   # 4. HashiCorp Boundary Worker
   boundary-worker:
     image: hashicorp/boundary:0.15
-    container_name: overseer-boundary-worker
     restart: unless-stopped
     deploy:
       resources:
@@ -124,9 +122,9 @@ services:
     depends_on:
       - boundary-controller
     ports:
-      - "9202:9202"
+      - "${BOUNDARY_WORKER_PROXY_PORT:-9202:9202}"
     environment:
-      BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY: ${BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY:-8pv7uU8g58aN8y1n8PqR8G3z7rW+V8eY9nQ2x3Z1v4U=}
+      BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY: ${BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY:-}
       GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS:-}
     volumes:
       - ./boundary/config:/boundary/config:ro
@@ -134,7 +132,7 @@ services:
       - ${DATA_DIR:-/data}/credentials:/credentials:ro
     command: ["boundary", "server", "-config=/boundary/config/worker.hcl"]
     networks:
-      - overseer-net
+      - backend
     logging:
       driver: "json-file"
       options:
@@ -144,7 +142,6 @@ services:
   # 5. Semaphore UI (Ansible Web UI & Orchestrator)
   semaphore:
     image: semaphoreui/semaphore:v2.10.35
-    container_name: overseer-semaphore
     restart: unless-stopped
     deploy:
       resources:
@@ -157,7 +154,7 @@ services:
       postgres:
         condition: service_healthy
     ports:
-      - "3000:3000"
+      - "${SEMAPHORE_PORT_BINDING:-3000:3000}"
     environment:
       SEMAPHORE_DB_DIALECT: postgres
       SEMAPHORE_DB_HOST: postgres
@@ -177,7 +174,7 @@ services:
       - ${DATA_DIR:-/data}/openbao:/openbao/data:ro
       - ~/.ssh:/root/.ssh:ro
     networks:
-      - overseer-net
+      - backend
     healthcheck:
       test: ["CMD-SHELL", "nc -z 127.0.0.1 3000 || exit 1"]
       interval: 10s
@@ -191,5 +188,6 @@ services:
         max-file: "3"
 
 networks:
-  overseer-net:
-    driver: bridge
+  backend:
+    external: true
+    name: backend

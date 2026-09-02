@@ -22,7 +22,9 @@ def test_ctrl_002_network_and_orchestration(root_dir):
     compose_file = root_dir / "compose.yml"
     assert compose_file.exists(), "compose.yml is missing"
     content = compose_file.read_text()
-    assert "overseer-net:" in content, "overseer-net network is not defined in compose file"
+    assert "name: overseer" in content, "compose.yml must define top-level project name: overseer"
+    assert "container_name:" not in content, "container_name: must be removed for standard Compose v2 naming"
+    assert "backend:" in content and "external: true" in content, "backend external network must be configured in compose.yml"
 
 def test_ctrl_003_bootstrap_workflow(root_dir):
     """[CTRL-003] Automated Full Stack Bootstrap script existence and executable"""
@@ -41,6 +43,7 @@ def test_ctrl_003_bootstrap_workflow(root_dir):
     assert "docker compose version" in orch_content, "preflight must check docker compose version"
     assert "generate_base64_key" in orch_content, "orchestrator.py must implement automated base64 keygen"
     assert "get_configured_data_dir" in orch_content, "orchestrator.py must support centralized DATA_DIR"
+    assert "ensure_backend_network" in orch_content, "orchestrator.py must automatically ensure backend network"
 
 def test_bao_ctrl_001_openbao_health(http_session, openbao_url):
     """[BAO-CTRL-001] OpenBao Server Initialization and Unseal status"""
@@ -82,4 +85,3 @@ def test_ctrl_006_preflight_validator(root_dir):
     content = orchestrator.read_text(encoding="utf-8")
     assert "run_preflight_checks" in content, "run_preflight_checks function missing in orchestrator.py"
     assert "CheckResult" in content or "checks.append" in content, "preflight checks logic missing"
-
