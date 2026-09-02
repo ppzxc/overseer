@@ -45,7 +45,7 @@ Overseer는 소-중규모 IDC(온프레미스) 환경에서 운영되는 다양�
   - **Filelog Receiver**: 시스템 로그(`/var/log/messages`, `/var/log/secure`, `/var/log/audit/audit.log`, `/var/log/sudo.log` 등) 수집 및 정형화.
   - **Prometheus Receiver (선택적)**: Docker Engine 메트릭(`127.0.0.1:9323`) 활성화 시 스크랩.
   - **OTLP Ingestion**: 어플리케이션 OTLP gRPC(4317) / HTTP(4318) 엔드포인트 수신.
-- **중앙 백엔드**: 수집된 메트릭, 로그, 트레이스는 OTLP 프로토콜을 통해 중앙 **OpenObserve** 클러스터로 단일화하여 아웃바운드 전송.
+- **중앙 백엔드**: 수집된 메트릭, 로그, 트레이스는 OTLP 프로토콜을 통해 중앙 **OpenObserve** 클러스터(사내 원격 관제망 또는 별도 중앙 클러스터)로 단일화하여 아웃바운드 전송.
 
 ---
 

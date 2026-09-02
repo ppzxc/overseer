@@ -74,3 +74,12 @@ def test_ctrl_005_semaphore_seeding(root_dir):
     content = init_script.read_text(encoding="utf-8")
     assert "Overseer Infrastructure" in content, "Project name missing in init-semaphore.sh"
     assert "playbooks/provision_servers.yml" in content, "playbooks template missing in init-semaphore.sh"
+
+def test_ctrl_006_preflight_validator(root_dir):
+    """[CTRL-006] Automated Pre-Flight Prerequisites Validator"""
+    orchestrator = root_dir / "scripts" / "orchestrator.py"
+    assert orchestrator.exists(), "scripts/orchestrator.py is missing"
+    content = orchestrator.read_text(encoding="utf-8")
+    assert "run_preflight_checks" in content, "run_preflight_checks function missing in orchestrator.py"
+    assert "CheckResult" in content or "checks.append" in content, "preflight checks logic missing"
+

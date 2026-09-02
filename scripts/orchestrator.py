@@ -12,8 +12,14 @@ import subprocess
 import argparse
 import base64
 import secrets
-import string
-from pathlib import Path
+from typing import NamedTuple, List
+
+class CheckResult(NamedTuple):
+    category: str
+    item: str
+    passed: bool
+    detail: str
+    remediation: str
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 
@@ -71,32 +77,32 @@ def run_preflight_checks(exit_on_failure=True):
     print(f"{BOLD}{CYAN}      Overseer Control Plane Pre-Flight Prerequisites Validator         {RESET}")
     print(f"{BOLD}{CYAN}================================================================================{RESET}\n")
 
-    checks = []
+    checks: List[CheckResult] = []
 
     # 1. CLI Tools
     for tool in ["docker", "jq", "curl", "make", "python3"]:
         res = subprocess.run(f"command -v {tool}", shell=True, capture_output=True, text=True)
         if res.returncode == 0:
-            checks.append(("CLI Tool", tool, True, res.stdout.strip(), ""))
+            checks.append(CheckResult("CLI Tool", tool, True, res.stdout.strip(), ""))
         else:
             remediation = f"Install '{tool}' via package manager (e.g. sudo apt install -y {tool} or sudo dnf install -y {tool})"
-            checks.append(("CLI Tool", tool, False, "Not found in PATH", remediation))
+            checks.append(CheckResult("CLI Tool", tool, False, "Not found in PATH", remediation))
 
     # 2. Docker Compose v2 plugin
     res_compose = subprocess.run("docker compose version", shell=True, capture_output=True, text=True)
     if res_compose.returncode == 0:
-        checks.append(("Docker Plugin", "docker compose v2", True, res_compose.stdout.strip().splitlines()[0], ""))
+        checks.append(CheckResult("Docker Plugin", "docker compose v2", True, res_compose.stdout.strip().splitlines()[0], ""))
     else:
-        checks.append(("Docker Plugin", "docker compose v2", False, "docker compose v2 not available", "Install Docker Compose v2 plugin"))
+        checks.append(CheckResult("Docker Plugin", "docker compose v2", False, "docker compose v2 not available", "Install Docker Compose v2 plugin"))
 
     # 3. Docker Non-Root User Permissions
     res_dockersock = subprocess.run("docker info", shell=True, capture_output=True, text=True)
     if res_dockersock.returncode == 0:
-        checks.append(("Permissions", "Docker Non-Root Access", True, "Docker daemon accessible without sudo", ""))
+        checks.append(CheckResult("Permissions", "Docker Non-Root Access", True, "Docker daemon accessible without sudo", ""))
     else:
         err_msg = res_dockersock.stderr.strip().splitlines()
         detail = err_msg[0] if err_msg else "Cannot connect to Docker daemon socket"
-        checks.append(("Permissions", "Docker Non-Root Access", False, detail, "Add user to docker group: sudo usermod -aG docker $USER && newgrp docker"))
+        checks.append(CheckResult("Permissions", "Docker Non-Root Access", False, detail, "Add user to docker group: sudo usermod -aG docker $USER && newgrp docker"))
 
     # 4. Filesystem Directory Writeability for Centralized DATA_DIR (/data)
     data_dir = get_configured_data_dir()
@@ -108,10 +114,10 @@ def run_preflight_checks(exit_on_failure=True):
         test_file = data_dir / ".preflight_tmp"
         test_file.write_text("ok", encoding="utf-8")
         test_file.unlink()
-        checks.append(("Filesystem", f"Data Dir ({data_dir})", True, f"Writable ({data_dir}/...)", ""))
+        checks.append(CheckResult("Filesystem", f"Data Dir ({data_dir})", True, f"Writable ({data_dir}/...)", ""))
     except Exception as e:
         remediation = f"Fix permissions: sudo mkdir -p {data_dir}/{{{','.join(required_subs)}}} && sudo chown -R $USER:dockermgmt {data_dir} && sudo chmod -R 775 {data_dir} (or set DATA_DIR=./data in .env for local testing)"
-        checks.append(("Filesystem", f"Data Dir ({data_dir})", False, str(e), remediation))
+        checks.append(CheckResult("Filesystem", f"Data Dir ({data_dir})", False, str(e), remediation))
 
     # 5. Port Availability & Conflicts
     ports_to_check = [
@@ -131,30 +137,30 @@ def run_preflight_checks(exit_on_failure=True):
         sock.close()
         if conn_res == 0:
             if overseer_containers_running:
-                checks.append(("Port Status", f"Port {port} ({service_desc})", True, "In use (Overseer active)", ""))
+                checks.append(CheckResult("Port Status", f"Port {port} ({service_desc})", True, "In use (Overseer active)", ""))
             else:
-                checks.append(("Port Conflict", f"Port {port} ({service_desc})", False, "Already in use by foreign process", f"Stop conflicting service on port {port}"))
+                checks.append(CheckResult("Port Conflict", f"Port {port} ({service_desc})", False, "Already in use by foreign process", f"Stop conflicting service on port {port}"))
         else:
-            checks.append(("Port Status", f"Port {port} ({service_desc})", True, "Available", ""))
+            checks.append(CheckResult("Port Status", f"Port {port} ({service_desc})", True, "Available", ""))
 
     # Print Table
     print(f"{'Category':<15} | {'Check Item':<35} | {'Status':<6} | {'Details'}")
     print("-" * 85)
     all_passed = True
-    for cat, item, passed, detail, _ in checks:
-        status_str = f"{GREEN}PASS{RESET}" if passed else f"{RED}FAIL{RESET}"
-        if not passed:
+    for chk in checks:
+        status_str = f"{GREEN}PASS{RESET}" if chk.passed else f"{RED}FAIL{RESET}"
+        if not chk.passed:
             all_passed = False
-        display_detail = detail[:34] + "..." if len(detail) > 34 else detail
-        print(f"{cat:<15} | {item:<35} | {status_str:<15} | {display_detail}")
+        display_detail = chk.detail[:34] + "..." if len(chk.detail) > 34 else chk.detail
+        print(f"{chk.category:<15} | {chk.item:<35} | {status_str:<15} | {display_detail}")
     print("-" * 85)
 
     if not all_passed:
         print(f"\n{BOLD}{RED}❌ Pre-flight validation failed! Bootstrap cancelled.{RESET}\n")
         print(f"{BOLD}Remediation Steps:{RESET}")
-        for cat, item, passed, detail, remediation in checks:
-            if not passed and remediation:
-                print(f"  - [{item}]: {remediation}")
+        for chk in checks:
+            if not chk.passed and chk.remediation:
+                print(f"  - [{chk.item}]: {chk.remediation}")
         print()
         if exit_on_failure:
             sys.exit(1)
@@ -172,21 +178,21 @@ def ensure_env_file():
         content = example.read_text(encoding="utf-8")
         
         # Cryptographically secure random keys & passwords
-        pg_pass = generate_random_password(18)
-        sem_pass = generate_random_password(18)
-        bnd_root = generate_base64_key(32)
-        bnd_worker = generate_base64_key(32)
-        bnd_rec = generate_base64_key(32)
-        sem_enc = generate_base64_key(32)
+        postgres_password = generate_random_password(18)
+        semaphore_admin_password = generate_random_password(18)
+        boundary_kms_root_key = generate_base64_key(32)
+        boundary_kms_worker_auth_key = generate_base64_key(32)
+        boundary_kms_recovery_key = generate_base64_key(32)
+        semaphore_encryption_key = generate_base64_key(32)
         
         # Replace default placeholder credentials
-        content = content.replace("POSTGRES_PASSWORD=boundarypassword", f"POSTGRES_PASSWORD={pg_pass}")
-        content = content.replace("postgresql://boundary:boundarypassword@", f"postgresql://boundary:{pg_pass}@")
-        content = content.replace("BOUNDARY_KMS_AEAD_ROOT_KEY=sP191WKGvgcuEmhdREQBPBG5nhAAda4e+bQQnFRinCU=", f"BOUNDARY_KMS_AEAD_ROOT_KEY={bnd_root}")
-        content = content.replace("BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY=8pv7uU8g58aN8y1n8PqR8G3z7rW+V8eY9nQ2x3Z1v4U=", f"BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY={bnd_worker}")
-        content = content.replace("BOUNDARY_KMS_AEAD_RECOVERY_KEY=uK382WKGvgcuEmhdREQBPBG5nhAAda4e+bQQnFRinCU=", f"BOUNDARY_KMS_AEAD_RECOVERY_KEY={bnd_rec}")
-        content = content.replace("SEMAPHORE_ADMIN_PASSWORD=semaphoreadmin", f"SEMAPHORE_ADMIN_PASSWORD={sem_pass}")
-        content = content.replace("SEMAPHORE_ACCESS_KEY_ENCRYPTION=GS3py5Y8+GvF12x0fTfR18k2h4eE9W2d1C8N6Q8T4=0", f"SEMAPHORE_ACCESS_KEY_ENCRYPTION={sem_enc}")
+        content = content.replace("POSTGRES_PASSWORD=boundarypassword", f"POSTGRES_PASSWORD={postgres_password}")
+        content = content.replace("postgresql://boundary:boundarypassword@", f"postgresql://boundary:{postgres_password}@")
+        content = content.replace("BOUNDARY_KMS_AEAD_ROOT_KEY=sP191WKGvgcuEmhdREQBPBG5nhAAda4e+bQQnFRinCU=", f"BOUNDARY_KMS_AEAD_ROOT_KEY={boundary_kms_root_key}")
+        content = content.replace("BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY=8pv7uU8g58aN8y1n8PqR8G3z7rW+V8eY9nQ2x3Z1v4U=", f"BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY={boundary_kms_worker_auth_key}")
+        content = content.replace("BOUNDARY_KMS_AEAD_RECOVERY_KEY=uK382WKGvgcuEmhdREQBPBG5nhAAda4e+bQQnFRinCU=", f"BOUNDARY_KMS_AEAD_RECOVERY_KEY={boundary_kms_recovery_key}")
+        content = content.replace("SEMAPHORE_ADMIN_PASSWORD=semaphoreadmin", f"SEMAPHORE_ADMIN_PASSWORD={semaphore_admin_password}")
+        content = content.replace("SEMAPHORE_ACCESS_KEY_ENCRYPTION=GS3py5Y8+GvF12x0fTfR18k2h4eE9W2d1C8N6Q8T4=0", f"SEMAPHORE_ACCESS_KEY_ENCRYPTION={semaphore_encryption_key}")
         
         env_file.write_text(content, encoding="utf-8")
         print(f"{GREEN}[+] Fresh .env created with newly generated 32-byte KMS/encryption keys and passwords.{RESET}")

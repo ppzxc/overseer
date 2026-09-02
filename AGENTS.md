@@ -49,7 +49,7 @@ overseer/
 │   └── test_05_provisioning_onboarding.py
 │
 ├── openbao/                   # OpenBao 오픈소스 시크릿/SSH CA 설정 & 초기화
-│   ├── config/openbao.hcl     # OpenBao 서버 설정 (File storage, TCP Listener, UI)
+│   ├── config/openbao.hcl     # OpenBao 서버 설정 (Raft storage, TCP Listener, UI)
 │   ├── policies/              # OpenBao ACL 정책 정의
 │   └── scripts/               # SSH CA 엔진 활성화 및 역할 등록 스크립트
 │

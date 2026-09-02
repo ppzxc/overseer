@@ -6,7 +6,7 @@ controller {
   name        = "overseer-controller"
   description = "Overseer Main Boundary Controller"
   database {
-    url = "postgresql://boundary:boundarypassword@postgres:5432/boundary?sslmode=disable"
+    url = "env://BOUNDARY_POSTGRES_URL"
   }
 }
 

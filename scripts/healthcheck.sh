@@ -1,33 +1,7 @@
 #!/usr/bin/env bash
 set -e
 
-# Overseer Services Healthcheck Script
-echo "[*] Checking Overseer Control Plane Services Health..."
+# Overseer Services Healthcheck Script (Delegates to centralized orchestrator status)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+python3 "${SCRIPT_DIR}/orchestrator.py" status
 
-echo -n "1. PostgreSQL: "
-if docker compose exec -T postgres pg_isready -U boundary >/dev/null 2>&1; then
-    echo "HEALTHY"
-else
-    echo "UNHEALTHY"
-fi
-
-echo -n "2. OpenBao API (8200): "
-if curl -s http://127.0.0.1:8200/v1/sys/health >/dev/null 2>&1 || [ $? -eq 2 ]; then
-    echo "HEALTHY"
-else
-    echo "UNHEALTHY / DOWN"
-fi
-
-echo -n "3. Boundary Controller (9200): "
-if curl -s http://127.0.0.1:9200/v1/health >/dev/null 2>&1; then
-    echo "HEALTHY"
-else
-    echo "STARTING / UNHEALTHY"
-fi
-
-echo -n "4. Semaphore UI (3000): "
-if curl -s http://127.0.0.1:3000/api/ping >/dev/null 2>&1 || curl -s http://127.0.0.1:3000/ >/dev/null 2>&1; then
-    echo "HEALTHY"
-else
-    echo "STARTING / UNHEALTHY"
-fi

@@ -2,10 +2,10 @@
 """
 Overseer Full-Stack 3-Way Traceability & Specification Validator
 Validates strict consistency across the entire Overseer repository:
-  1. Specification Documents (docs/ansible/*.md, docs/control-plane/*.md)
-  2. Infrastructure & Task Code (ansible/roles/, compose.yml, vault/, boundary/)
-  3. Automated Tests (tests/test_*.py, ansible/molecule/default/verify.yml)
-Generates: docs/TRACEABILITY_MATRIX.md
+  1. Specification Documents (docs/control-plane/*.md, docs/adr/*.md)
+  2. Infrastructure & Task Code (compose.yml, openbao/, boundary/, scripts/)
+  3. Automated Tests (tests/test_*.py)
+Generates: docs/tests/TRACEABILITY_MATRIX.md
 """
 
 import sys
@@ -57,6 +57,7 @@ def extract_all_code_implementations():
         "CTRL-003": ("Automated Full Stack Bootstrap", "Makefile"),
         "CTRL-004": ("Ansible Semaphore Web UI and Orchestrator service", "compose.yml"),
         "CTRL-005": ("Automated Semaphore Project and Template Seeding", "scripts/init-semaphore.sh"),
+        "CTRL-006": ("Automated Pre-Flight Prerequisites Validator", "scripts/orchestrator.py"),
         "BAO-CTRL-001": ("OpenBao Server Initialization and Unseal", "openbao/config/openbao.hcl"),
         "BAO-CTRL-002": ("OpenBao SSH CA Secrets Engine Mount", "openbao/scripts/init-openbao-ssh-ca.sh"),
         "BAO-CTRL-003": ("OpenBao SSH User Certificate Signing Role", "openbao/scripts/init-openbao-ssh-ca.sh"),

@@ -24,7 +24,7 @@ Overseer의 초기 아키텍처에서는 컨트롤 플레인 컨테이너 스택
 - **컨트롤 플레인 상시 서비스 일원화**:
   - `compose.yml`에서 상시 기동용 `ansible` 서비스를 제거하고 **`semaphore` 단일 서비스**로 통합 운영.
   - Semaphore 컨테이너는 내장된 Ansible 런타임, 웹 UI(Port 3000), 스케줄러, PostgreSQL 백엔드를 통해 모든 플레이북 실행 및 상태 관리를 전담.
-  - Ansible 디렉토리(`/ansible`), OpenBao CA 공개키(`/openbao/data`), 관리자 SSH 키(`~/.ssh`)를 Semaphore에 볼륨 마운트하여 기존 플레이북 및 인벤토리 100% 호환성 유지.
+  - OpenBao CA 공개키(`/openbao/data`), 관리자 SSH 키(`~/.ssh`), Semaphore 데이터 디렉토리(`/tmp/semaphore`)를 Semaphore에 볼륨 마운트하고, 최신 프로비저닝 코드는 원격 GitOps 저장소(`node-provisioner`)로부터 동적 pull하여 실행.
 
 ### 2.2 개발 및 CI 테스트 툴체인 역할 분리
 - **`ansible/docker-run.sh` 및 `ansible/Dockerfile`**:
