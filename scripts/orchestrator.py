@@ -901,7 +901,7 @@ def bootstrap(target_dir_param=None):
     print(f"{BOLD}{GREEN}  Overseer Control Plane is UP and READY!                                      {RESET}")
     print(f"{BOLD}{GREEN}  - OpenBao Web UI:     http://localhost:8200                                   {RESET}")
     print(f"{BOLD}{GREEN}  - Boundary Admin UI:  http://localhost:9200                                   {RESET}")
-    print(f"{BOLD}{GREEN}  - Semaphore Web UI:   http://localhost:3000 (admin / semaphoreadmin)          {RESET}")
+    print(f"{BOLD}{GREEN}  - Semaphore Web UI:   http://localhost:3000                                   {RESET}")
     print(f"{BOLD}{GREEN}================================================================================{RESET}\n")
 
 def check_service_status():

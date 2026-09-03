@@ -32,20 +32,20 @@ listener "tcp" {
 kms "aead" {
   purpose   = "root"
   aead_type = "aes-gcm"
-  key       = "l74Pm6L+aNN3tDQTfiv7K0FAdVP+VBsQGBxsdMMfI9Q="
+  key       = "ih3evM1+MUGw8w5vSZGkli6lLEBSEQU70aWBN7NkL4g="
   key_id    = "global_root"
 }
 
 kms "aead" {
   purpose   = "worker-auth"
   aead_type = "aes-gcm"
-  key       = "JuC3bK4TqlJMaoq7U8/+wh4hRswogVF1ORq5LrbtKZA="
+  key       = "VTF5EvO4mU9IPUjon9n5ynsiYITR5FrYIhQvCl9MXLc="
   key_id    = "global_worker_auth"
 }
 
 kms "aead" {
   purpose   = "recovery"
   aead_type = "aes-gcm"
-  key       = "wnma1r8ID7ZJVDq8piSvugKxytQMABMIQDyJWUbc9p8="
+  key       = "ZQB09GFHi8ow3mbkPBAI/TcHWDLyiJE6MO59vRIQ1BE="
   key_id    = "global_recovery"
 }
