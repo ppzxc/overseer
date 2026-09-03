@@ -1,6 +1,5 @@
 # OpenBao Server Configuration - Local Shamir Seal Profile
 ui = true
-disable_mlock = true
 
 storage "raft" {
   path    = "/openbao/data"

@@ -31,13 +31,21 @@ def openbao_token(root_dir):
     env_token = os.getenv("BAO_TOKEN")
     if env_token:
         return env_token
-    init_file = root_dir / "openbao" / "data" / "openbao-init.json"
-    if init_file.exists():
-        try:
-            data = json.loads(init_file.read_text())
-            return data.get("root_token", "")
-        except Exception:
-            pass
+    data_dir_env = os.getenv("DATA_DIR", "/data")
+    search_paths = [
+        Path(data_dir_env) / "openbao" / "openbao-init.json",
+        root_dir / "openbao" / "data" / "openbao-init.json",
+        root_dir / "data" / "openbao" / "openbao-init.json",
+    ]
+    for p in search_paths:
+        if p.exists():
+            try:
+                data = json.loads(p.read_text(encoding="utf-8"))
+                tok = data.get("root_token", "")
+                if tok:
+                    return tok
+            except Exception:
+                pass
     return "root"
 
 @pytest.fixture(scope="session")

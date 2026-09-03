@@ -117,14 +117,14 @@ echo "[+] OpenBao is unsealed and ready. Token: ${BAO_TOKEN:0:10}..."
 
 # 3. SSH Client Signer Engine 활성화
 echo "[*] Configuring SSH Certificate Authority (CA)..."
-if ! curl -s -H "X-Vault-Token: ${BAO_TOKEN}" "${BAO_ADDR}/v1/sys/mounts" | jq -e '."ssh-client-signer/"' >/dev/null 2>&1; then
+if ! curl -s -H "X-Vault-Token: ${BAO_TOKEN}" "${BAO_ADDR}/v1/sys/mounts" | jq -e '(.data["ssh-client-signer/"] // ."ssh-client-signer/") != null' >/dev/null 2>&1; then
     echo "[*] Mounting ssh secrets engine at ssh-client-signer..."
-    curl -s -X POST -H "X-Vault-Token: ${BAO_TOKEN}" \
+    curl -s -X POST -H "X-Vault-Token: ${BAO_TOKEN}" -H "Content-Type: application/json" \
          "${BAO_ADDR}/v1/sys/mounts/ssh-client-signer" \
          -d '{"type": "ssh"}' >/dev/null
 
     echo "[*] Generating SSH CA KeyPair..."
-    curl -s -X POST -H "X-Vault-Token: ${BAO_TOKEN}" \
+    curl -s -X POST -H "X-Vault-Token: ${BAO_TOKEN}" -H "Content-Type: application/json" \
          "${BAO_ADDR}/v1/ssh-client-signer/config/ca" \
          -d '{"generate_signing_key": true}' >/dev/null
 fi
@@ -132,6 +132,10 @@ fi
 # 4. SSH CA 공개키 추출 및 저장
 CA_PUBLIC_KEY=$(curl -s -H "X-Vault-Token: ${BAO_TOKEN}" "${BAO_ADDR}/v1/ssh-client-signer/public_key")
 echo "${CA_PUBLIC_KEY}" > /openbao/data/openbao-ssh-ca.pub
+chmod 644 /openbao/data/openbao-ssh-ca.pub 2>/dev/null || true
+if [ -f "/openbao/data/openbao-init.json" ]; then
+    chmod 644 /openbao/data/openbao-init.json 2>/dev/null || true
+fi
 echo "[+] OpenBao SSH CA Public Key extracted to /openbao/data/openbao-ssh-ca.pub:"
 echo "--------------------------------------------------------------------------------"
 echo "${CA_PUBLIC_KEY}"
@@ -139,9 +143,10 @@ echo "--------------------------------------------------------------------------
 
 # 5. 엔지니어 서명 역할(Role) 생성
 echo "[*] Creating SSH client signer role: infra-admin-role..."
-curl -s -X POST -H "X-Vault-Token: ${BAO_TOKEN}" \
+curl -s -X POST -H "X-Vault-Token: ${BAO_TOKEN}" -H "Content-Type: application/json" \
      "${BAO_ADDR}/v1/ssh-client-signer/roles/infra-admin-role" \
      -d '{
+       "key_type": "ca",
        "allow_user_certificates": true,
        "allowed_users": "infra-admin,ansible,root,ppzxc",
        "allowed_extensions": "permit-pty,permit-port-forwarding,permit-agent-forwarding",

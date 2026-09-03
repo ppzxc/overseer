@@ -1,6 +1,5 @@
 # OpenBao Server Configuration - GCP Cloud KMS Auto-Unseal Profile
 ui = true
-disable_mlock = true
 
 storage "raft" {
   path    = "/openbao/data"

@@ -27,6 +27,13 @@ class CheckResult(NamedTuple):
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 
+if hasattr(os, "getuid") and hasattr(os, "getgid"):
+    os.environ.setdefault("CURRENT_UID", str(os.getuid()))
+    os.environ.setdefault("CURRENT_GID", str(os.getgid()))
+else:
+    os.environ.setdefault("CURRENT_UID", "1000")
+    os.environ.setdefault("CURRENT_GID", "1000")
+
 def read_env_file(include_comments: bool = False) -> dict:
     """Parses .env file into a dictionary of key-value pairs."""
     env_file = ROOT_DIR / ".env"
@@ -724,7 +731,7 @@ def init_openbao():
     
     max_retries = 3
     for attempt in range(1, max_retries + 1):
-        res = run_cmd(f"docker compose exec -T -e OPENBAO_SHAMIR_MODE={shamir_mode} {unseal_env} openbao /bin/sh /openbao/scripts/init-openbao-ssh-ca.sh", check=False)
+        res = run_cmd(f"docker compose exec -T -u 0:0 -e OPENBAO_SHAMIR_MODE={shamir_mode} {unseal_env} openbao /bin/sh /openbao/scripts/init-openbao-ssh-ca.sh", check=False)
         if res.returncode == 0:
             print(f"{GREEN}[+] OpenBao SSH CA setup finished.{RESET}")
             return

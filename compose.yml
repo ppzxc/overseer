@@ -35,6 +35,7 @@ services:
   # 2. OpenBao Server
   openbao:
     image: ghcr.io/openbao/openbao:2.6.2
+    user: "${CURRENT_UID:-1000}:${CURRENT_GID:-1000}"
     restart: unless-stopped
     deploy:
       resources:
