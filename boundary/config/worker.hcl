@@ -4,7 +4,7 @@ disable_mlock = true
 worker {
   name        = "overseer-worker"
   description = "Overseer IDC In-Cluster Boundary Worker"
-  controllers = [
+  initial_upstreams = [
     "boundary-controller:9201"
   ]
   public_addr = "127.0.0.1:9202"
@@ -25,6 +25,6 @@ listener "tcp" {
 kms "aead" {
   purpose   = "worker-auth"
   aead_type = "aes-gcm"
-  key       = "qZoepE9MFeu5dlx5ZTT+QLw87MYeWm0x2m89/PgxQuE="
+  key       = "JuC3bK4TqlJMaoq7U8/+wh4hRswogVF1ORq5LrbtKZA="
   key_id    = "global_worker_auth"
 }

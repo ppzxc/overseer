@@ -4,7 +4,7 @@ disable_mlock = true
 worker {
   name        = "overseer-worker"
   description = "Overseer IDC In-Cluster Boundary Worker (GCP Cloud KMS)"
-  controllers = [
+  initial_upstreams = [
     "boundary-controller:9201"
   ]
   public_addr = "127.0.0.1:9202"

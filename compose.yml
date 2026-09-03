@@ -80,6 +80,8 @@ services:
           memory: 512M
         reservations:
           memory: 128M
+    cap_add:
+      - IPC_LOCK
     depends_on:
       postgres:
         condition: service_healthy
@@ -112,6 +114,8 @@ services:
           memory: 1024M
         reservations:
           memory: 256M
+    cap_add:
+      - IPC_LOCK
     depends_on:
       - boundary-controller
     environment:
