@@ -14,15 +14,15 @@ services:
         reservations:
           memory: 256M
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-boundary}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-boundarypassword}
-      POSTGRES_DB: ${POSTGRES_DB:-boundary}
+      POSTGRES_USER: ${BOUNDARY_DATABASE_USER:-boundary}
+      POSTGRES_PASSWORD: ${BOUNDARY_DATABASE_PASSWORD:-boundarypassword}
+      POSTGRES_DB: ${BOUNDARY_DATABASE:-boundary}
     volumes:
       - ${DATA_DIR:-/data}/postgres:/var/lib/postgresql/data
     networks:
       - backend
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-boundary}"]
+      test: ["CMD-SHELL", "pg_isready -U ${BOUNDARY_DATABASE_USER:-boundary}"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -49,12 +49,10 @@ services:
       BAO_ADDR: "http://0.0.0.0:8200"
       BAO_API_ADDR: "http://127.0.0.1:8200"
       OPENBAO_SHAMIR_MODE: ${OPENBAO_SHAMIR_MODE:-auto}
-      GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS:-}
     volumes:
       - ./openbao/config:/openbao/config:ro
       - ${DATA_DIR:-/data}/openbao:/openbao/data
       - ./openbao/scripts:/openbao/scripts:ro
-      - ${DATA_DIR:-/data}/credentials:/credentials:ro
     entrypoint: ["bao", "server", "-config=/openbao/config/openbao.hcl"]
     networks:
       - backend
@@ -85,16 +83,14 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      BOUNDARY_POSTGRES_URL: ${BOUNDARY_POSTGRES_URL:-postgresql://${POSTGRES_USER:-boundary}:${POSTGRES_PASSWORD:-boundarypassword}@postgres:5432/${POSTGRES_DB:-boundary}?sslmode=disable}
+      BOUNDARY_POSTGRES_URL: "postgresql://${BOUNDARY_DATABASE_USER:-boundary}:${BOUNDARY_DATABASE_PASSWORD:-boundarypassword}@postgres:5432/${BOUNDARY_DATABASE:-boundary}?sslmode=disable"
       BOUNDARY_KMS_AEAD_ROOT_KEY: ${BOUNDARY_KMS_AEAD_ROOT_KEY:-}
       BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY: ${BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY:-}
       BOUNDARY_KMS_AEAD_RECOVERY_KEY: ${BOUNDARY_KMS_AEAD_RECOVERY_KEY:-}
-      GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS:-}
     volumes:
       - ./boundary/config:/boundary/config:ro
       - ./boundary/scripts:/boundary/scripts:ro
       - ${DATA_DIR:-/data}/boundary:/boundary/data
-      - ${DATA_DIR:-/data}/credentials:/credentials:ro
     command: ["boundary", "server", "-config=/boundary/config/controller.hcl"]
     networks:
       - backend
@@ -119,11 +115,9 @@ services:
       - boundary-controller
     environment:
       BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY: ${BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY:-}
-      GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS:-}
     volumes:
       - ./boundary/config:/boundary/config:ro
       - ${DATA_DIR:-/data}/boundary:/boundary/data
-      - ${DATA_DIR:-/data}/credentials:/credentials:ro
     command: ["boundary", "server", "-config=/boundary/config/worker.hcl"]
     networks:
       - backend
@@ -149,11 +143,11 @@ services:
         condition: service_healthy
     environment:
       SEMAPHORE_DB_DIALECT: postgres
-      SEMAPHORE_DB_HOST: postgres
-      SEMAPHORE_DB_PORT: 5432
-      SEMAPHORE_DB_USER: ${POSTGRES_USER:-boundary}
-      SEMAPHORE_DB_PASS: ${POSTGRES_PASSWORD:-boundarypassword}
-      SEMAPHORE_DB: ${SEMAPHORE_DB:-semaphore}
+      SEMAPHORE_DB_HOST: ${POSTGRES_HOST:-postgres}
+      SEMAPHORE_DB_PORT: ${POSTGRES_PORT:-5432}
+      SEMAPHORE_DB_USER: ${SEMAPHORE_DATABASE_USER:-semaphore}
+      SEMAPHORE_DB_PASS: ${SEMAPHORE_DATABASE_PASSWORD:-semaphorepassword}
+      SEMAPHORE_DB: ${SEMAPHORE_DATABASE:-semaphore}
       SEMAPHORE_ADMIN: ${SEMAPHORE_ADMIN:-admin}
       SEMAPHORE_ADMIN_NAME: ${SEMAPHORE_ADMIN_NAME:-Admin}
       SEMAPHORE_ADMIN_EMAIL: ${SEMAPHORE_ADMIN_EMAIL:-admin@overseer.local}

@@ -230,15 +230,16 @@ def ensure_env_file(interactive=True):
         print(f"{CYAN}[*] Generating fresh .env with unique cryptographic keys...{RESET}")
         content = example.read_text(encoding="utf-8")
         
-        postgres_password = generate_random_password(18)
+        boundary_db_password = generate_random_password(18)
+        semaphore_db_password = generate_random_password(18)
         semaphore_admin_password = generate_random_password(18)
         boundary_kms_root_key = generate_base64_key(32)
         boundary_kms_worker_auth_key = generate_base64_key(32)
         boundary_kms_recovery_key = generate_base64_key(32)
         semaphore_encryption_key = generate_base64_key(32)
         
-        content = content.replace("POSTGRES_PASSWORD=boundarypassword", f"POSTGRES_PASSWORD={postgres_password}")
-        content = content.replace("postgresql://boundary:boundarypassword@", f"postgresql://boundary:{postgres_password}@")
+        content = content.replace("BOUNDARY_DATABASE_PASSWORD=boundarypassword", f"BOUNDARY_DATABASE_PASSWORD={boundary_db_password}")
+        content = content.replace("SEMAPHORE_DATABASE_PASSWORD=semaphorepassword", f"SEMAPHORE_DATABASE_PASSWORD={semaphore_db_password}")
         content = content.replace("BOUNDARY_KMS_AEAD_ROOT_KEY=sP191WKGvgcuEmhdREQBPBG5nhAAda4e+bQQnFRinCU=", f"BOUNDARY_KMS_AEAD_ROOT_KEY={boundary_kms_root_key}")
         content = content.replace("BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY=8pv7uU8g58aN8y1n8PqR8G3z7rW+V8eY9nQ2x3Z1v4U=", f"BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY={boundary_kms_worker_auth_key}")
         content = content.replace("BOUNDARY_KMS_AEAD_RECOVERY_KEY=uK382WKGvgcuEmhdREQBPBG5nhAAda4e+bQQnFRinCU=", f"BOUNDARY_KMS_AEAD_RECOVERY_KEY={boundary_kms_recovery_key}")
@@ -265,18 +266,12 @@ def ensure_env_file(interactive=True):
         except (EOFError, KeyboardInterrupt):
             print()
 
-    # Synchronize BOUNDARY_POSTGRES_URL password if POSTGRES_PASSWORD or POSTGRES_USER was edited
-    sync_env_database_url()
-
 def sync_env_database_url():
-    """Ensures BOUNDARY_POSTGRES_URL matches POSTGRES_USER, POSTGRES_PASSWORD, and POSTGRES_DB in .env."""
+    """Ensures runtime environment variables match .env configuration."""
     env_vars = read_env_file()
-    pg_user = env_vars.get("POSTGRES_USER")
-    pg_pass = env_vars.get("POSTGRES_PASSWORD")
-    pg_db = env_vars.get("POSTGRES_DB", "boundary")
-    if pg_user and pg_pass:
-        new_url = f"postgresql://{pg_user}:{pg_pass}@postgres:5432/{pg_db}?sslmode=disable"
-        set_env_var("BOUNDARY_POSTGRES_URL", new_url, uncomment=True)
+    for k, v in env_vars.items():
+        if k not in os.environ:
+            os.environ[k] = v
 
 def set_env_var(key: str, value: str = None, uncomment: bool = True):
     """
@@ -524,9 +519,11 @@ def prompt_and_configure_all(interactive=True):
 def check_postgres_ready(timeout=30):
     """Waits for PostgreSQL to accept connections."""
     print(f"{CYAN}[*] Waiting for PostgreSQL backend (service postgres)...{RESET}")
+    env_vars = read_env_file()
+    bnd_user = env_vars.get("BOUNDARY_DATABASE_USER", "boundary")
     start = time.time()
     while time.time() - start < timeout:
-        res = run_cmd("docker compose exec -T postgres pg_isready -U boundary", check=False, capture=True)
+        res = run_cmd(f"docker compose exec -T postgres pg_isready -U {bnd_user}", check=False, capture=True)
         if res.returncode == 0:
             print(f"{GREEN}[+] PostgreSQL is ready.{RESET}")
             return True
@@ -535,14 +532,36 @@ def check_postgres_ready(timeout=30):
     return False
 
 def ensure_postgres_databases():
-    """Ensures 'semaphore' and 'boundary' databases exist."""
-    print(f"{CYAN}[*] Ensuring 'semaphore' database in PostgreSQL...{RESET}")
-    check_db = run_cmd("docker compose exec -T postgres psql -U boundary -d postgres -tc \"SELECT 1 FROM pg_database WHERE datname = 'semaphore'\"", check=False, capture=True)
-    if "1" not in check_db.stdout:
-        run_cmd("docker compose exec -T postgres psql -U boundary -d postgres -c \"CREATE DATABASE semaphore;\"", check=False)
-        print(f"{GREEN}[+] Created database 'semaphore'.{RESET}")
+    """Ensures dedicated 'boundary' and 'semaphore' users and databases exist with strict least-privilege isolation."""
+    print(f"{CYAN}[*] Configuring separated PostgreSQL users and databases...{RESET}")
+    env_vars = read_env_file()
+    bnd_user = env_vars.get("BOUNDARY_DATABASE_USER", "boundary")
+    bnd_pass = env_vars.get("BOUNDARY_DATABASE_PASSWORD", "boundarypassword")
+    bnd_db = env_vars.get("BOUNDARY_DATABASE", "boundary")
+    
+    sem_user = env_vars.get("SEMAPHORE_DATABASE_USER", "semaphore")
+    sem_pass = env_vars.get("SEMAPHORE_DATABASE_PASSWORD", "semaphorepassword")
+    sem_db = env_vars.get("SEMAPHORE_DATABASE", "semaphore")
+
+    # 1. Ensure Semaphore user exists
+    check_user = run_cmd(f"docker compose exec -T postgres psql -U {bnd_user} -d {bnd_db} -tc \"SELECT 1 FROM pg_roles WHERE rolname = '{sem_user}'\"", check=False, capture=True)
+    if "1" not in check_user.stdout:
+        print(f"{CYAN}[*] Creating dedicated PostgreSQL user '{sem_user}'...{RESET}")
+        run_cmd(f"docker compose exec -T postgres psql -U {bnd_user} -d {bnd_db} -c \"CREATE USER {sem_user} WITH PASSWORD '{sem_pass}';\"", check=False)
     else:
-        print(f"{GREEN}[+] Database 'semaphore' already exists.{RESET}")
+        # Update password if changed
+        run_cmd(f"docker compose exec -T postgres psql -U {bnd_user} -d {bnd_db} -c \"ALTER USER {sem_user} WITH PASSWORD '{sem_pass}';\"", check=False)
+
+    # 2. Ensure Semaphore database exists and is owned by semaphore user
+    check_db = run_cmd(f"docker compose exec -T postgres psql -U {bnd_user} -d {bnd_db} -tc \"SELECT 1 FROM pg_database WHERE datname = '{sem_db}'\"", check=False, capture=True)
+    if "1" not in check_db.stdout:
+        print(f"{CYAN}[*] Creating dedicated PostgreSQL database '{sem_db}' owned by '{sem_user}'...{RESET}")
+        run_cmd(f"docker compose exec -T postgres psql -U {bnd_user} -d {bnd_db} -c \"CREATE DATABASE {sem_db} OWNER {sem_user};\"", check=False)
+        run_cmd(f"docker compose exec -T postgres psql -U {bnd_user} -d {bnd_db} -c \"GRANT ALL PRIVILEGES ON DATABASE {sem_db} TO {sem_user};\"", check=False)
+        print(f"{GREEN}[+] Created database '{sem_db}' with isolated owner '{sem_user}'.{RESET}")
+    else:
+        run_cmd(f"docker compose exec -T postgres psql -U {bnd_user} -d {bnd_db} -c \"GRANT ALL PRIVILEGES ON DATABASE {sem_db} TO {sem_user};\"", check=False)
+        print(f"{GREEN}[+] Database '{sem_db}' ready.{RESET}")
 
 def init_boundary():
     """Initializes Boundary Database schema."""
@@ -725,9 +744,11 @@ def bootstrap(target_dir_param=None):
 def check_service_status():
     """Detailed health check and status reporting across all control plane services."""
     print(f"\n{BOLD}Checking Overseer Control Plane Services Health...{RESET}\n")
+    env_vars = read_env_file()
+    bnd_user = env_vars.get("BOUNDARY_DATABASE_USER", "boundary")
     
     services = [
-        ("1. PostgreSQL (5432)", "docker compose exec -T postgres pg_isready -U boundary", "tcp"),
+        ("1. PostgreSQL (5432)", f"docker compose exec -T postgres pg_isready -U {bnd_user}", "tcp"),
         ("2. OpenBao API (8200)", "docker compose exec -T openbao bao status -address=http://127.0.0.1:8200", "cli"),
         ("3. Boundary Controller (9200)", "curl -s http://127.0.0.1:9200/v1/health || docker compose exec -T boundary-controller /bin/sh -c 'curl -s http://127.0.0.1:9200/v1/health'", "http"),
         ("4. Boundary Worker (9202)", "nc -z 127.0.0.1 9202 || docker compose exec -T boundary-worker /bin/sh -c 'nc -z 127.0.0.1 9202'", "tcp"),
@@ -750,7 +771,7 @@ def check_service_status():
 
 def main():
     parser = argparse.ArgumentParser(description="Overseer Control Plane Lifecycle Orchestrator")
-    parser.add_argument("action", choices=["bootstrap", "up", "preflight", "status", "down", "init-openbao", "init-boundary", "init-semaphore", "configure-seal", "deploy-target"], help="Action to perform")
+    parser.add_argument("action", choices=["bootstrap", "up", "preflight", "status", "down", "init-postgres", "init-openbao", "init-boundary", "init-semaphore", "configure-seal", "deploy-target"], help="Action to perform")
     parser.add_argument("--target-dir", default=None, help="Target production installation directory (default: /opt/services/overseer)")
     parser.add_argument("--seal-type", choices=["local", "gcpkms"], default=None, help="Force specific seal backend")
     parser.add_argument("--expose-ports", choices=["true", "false"], default=None, help="Expose ports to host")
@@ -784,6 +805,8 @@ def main():
         sys.exit(check_service_status())
     elif args.action == "down":
         run_cmd("docker compose down", check=True)
+    elif args.action == "init-postgres":
+        ensure_postgres_databases()
     elif args.action == "init-openbao":
         init_openbao()
     elif args.action == "init-boundary":

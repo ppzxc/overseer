@@ -41,13 +41,12 @@ env-file:
 
 wait-postgres: env-file
 	@echo "[*] Waiting for PostgreSQL..."
-	@until docker compose exec -T postgres pg_isready -U boundary >/dev/null 2>&1; do sleep 2; done
+	@until docker compose exec -T postgres pg_isready >/dev/null 2>&1; do sleep 2; done
 	@echo "[+] PostgreSQL is ready."
 
 ensure-semaphore-db: wait-postgres
-	@echo "[*] Ensuring Semaphore database exists in PostgreSQL..."
-	@docker compose exec -T postgres psql -U boundary -d postgres -tc "SELECT 1 FROM pg_database WHERE datname = 'semaphore'" | grep -q 1 || \
-	docker compose exec -T postgres psql -U boundary -d postgres -c "CREATE DATABASE semaphore;" >/dev/null 2>&1 || true
+	@echo "[*] Ensuring PostgreSQL databases are configured..."
+	@./scripts/orchestrator.py init-postgres >/dev/null 2>&1 || true
 
 configure-seal: env-file
 	@./scripts/orchestrator.py configure-seal
