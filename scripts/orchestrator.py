@@ -272,9 +272,11 @@ def ensure_env_file(interactive=False):
             set_env_var("SEMAPHORE_ACCESS_KEY_ENCRYPTION", generate_base64_key(32), uncomment=True)
             
         # Reload into os.environ only if not already present in environment
+        # (Exclude mode selector flags so dynamic/interactive selection is respected)
+        control_flags = {"KEY_MANAGEMENT_PROFILE", "SEAL_TYPE", "OPENBAO_SHAMIR_MODE", "BOUNDARY_AEAD_MODE", "EXPOSE_PORTS"}
         fresh_vars = read_env_file(include_comments=False)
         for k, v in fresh_vars.items():
-            if k not in os.environ:
+            if k not in os.environ and k not in control_flags:
                 os.environ[k] = v
 
 def prompt_edit_env_file(interactive=True):
@@ -337,7 +339,7 @@ def set_env_var(key: str, value: str = None, uncomment: bool = True):
                     target_val = ""
             formatted_line = f"{key}={target_val}" if uncomment else f"# {key}={target_val}"
             new_lines.append(formatted_line)
-            if uncomment:
+            if uncomment and target_val != "":
                 os.environ[key] = str(target_val)
         else:
             new_lines.append(l)
@@ -345,7 +347,7 @@ def set_env_var(key: str, value: str = None, uncomment: bool = True):
     if not found and value is not None:
         formatted_line = f"{key}={value}" if uncomment else f"# {key}={value}"
         new_lines.append(formatted_line)
-        if uncomment:
+        if uncomment and value != "":
             os.environ[key] = str(value)
             
     env_file.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
@@ -402,20 +404,93 @@ services:
             override_file.unlink()
             print(f"{YELLOW}[-] Removed compose.override.yml (Internal only, zero host port bindings){RESET}")
 
+def ensure_runtime_keys_injected(interactive=True):
+    """
+    Validates that necessary encryption and KMS keys are present in the runtime environment
+    (from .env or shell environment injection). If missing (e.g. after reboot in manual mode),
+    prompts the user interactively to inject them into the session memory.
+    """
+    seal_type = get_configured_seal_type()
+    if seal_type == "gcpkms":
+        return True
+
+    env_vars = read_env_file()
+    required_keys = [
+        ("BOUNDARY_KMS_AEAD_ROOT_KEY", "Boundary KMS Root Key (32-byte Base64)"),
+        ("BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY", "Boundary KMS Worker Auth Key (32-byte Base64)"),
+        ("BOUNDARY_KMS_AEAD_RECOVERY_KEY", "Boundary KMS Recovery Key (32-byte Base64)"),
+        ("SEMAPHORE_ACCESS_KEY_ENCRYPTION", "Semaphore Access Key Encryption (32-byte Base64)"),
+    ]
+
+    missing = []
+    for k, desc in required_keys:
+        val = os.getenv(k) or env_vars.get(k)
+        if not val:
+            missing.append((k, desc))
+
+    if missing:
+        if interactive and sys.stdin.isatty():
+            import getpass
+            print(f"\n{BOLD}{YELLOW}================================================================================{RESET}")
+            print(f"{BOLD}{YELLOW}       Manual Key Management Mode - Session Key Injection Required              {RESET}")
+            print(f"{BOLD}{YELLOW}================================================================================{RESET}\n")
+            print(" Master encryption keys are not found in .env (Zero-Knowledge Manual Mode).")
+            print(" Please input the keys below to inject them into the current startup session.\n")
+            print(" (Alternatively, export them as environment variables before starting: e.g. export KEY=...)\n")
+            
+            for k, desc in missing:
+                try:
+                    val = getpass.getpass(f" Enter {desc}: ").strip()
+                    if not val:
+                        val = input(f" (Visible input) Enter {desc}: ").strip()
+                    if val:
+                        os.environ[k] = val
+                    else:
+                        print(f"{RED}[!] Missing required key {k}. Startup may fail.{RESET}")
+                except (EOFError, KeyboardInterrupt):
+                    print()
+                    break
+        else:
+            print(f"{YELLOW}[!] Notice: Running in manual mode with missing keys in .env. Ensure keys are exported in environment.{RESET}")
+    return True
+
 def prompt_and_configure_all(interactive=True):
     """
     Prompts (if interactive) and configures:
-    1. Port binding exposure (Host exposed 0.0.0.0:<port>:<port> vs Internal backend only)
-    2. Seal backend profile (Local vs GCP Cloud KMS)
-    3. OpenBao Shamir Mode (Auto persistent vs Manual ephemeral)
-    4. Boundary AEAD Mode (Auto persistent vs Manual ephemeral)
+    1. Host Port binding exposure (Host exposed 0.0.0.0:<port>:<port> vs Internal backend only)
+    2. Key Management & Storage Profile:
+       [1] Local .env Persisted (Keys saved to host .env & disk, automatic reboot unseal)
+       [2] Zero-Knowledge Manual (Keys printed once, completely wiped from .env & disk)
+       [3] External Cloud KMS (Google Cloud KMS Cloud HSM auto-unseal)
     """
     ensure_env_file(interactive=interactive)
     
+    # Determine defaults from existing env
     seal_type = get_configured_seal_type()
     expose_ports = os.getenv("EXPOSE_PORTS", "true").lower() != "false"
     shamir_mode = os.getenv("OPENBAO_SHAMIR_MODE", "auto").lower()
     aead_mode = os.getenv("BOUNDARY_AEAD_MODE", "auto").lower()
+    
+    # Unified profile detection
+    if "SEAL_TYPE" in os.environ and os.environ["SEAL_TYPE"].strip().lower() == "gcpkms":
+        profile = "gcpkms"
+    elif ("OPENBAO_SHAMIR_MODE" in os.environ and os.environ["OPENBAO_SHAMIR_MODE"].strip().lower() == "manual") or \
+         ("BOUNDARY_AEAD_MODE" in os.environ and os.environ["BOUNDARY_AEAD_MODE"].strip().lower() == "manual"):
+        profile = "manual"
+    elif "KEY_MANAGEMENT_PROFILE" in os.environ and os.environ["KEY_MANAGEMENT_PROFILE"].strip():
+        profile = os.environ["KEY_MANAGEMENT_PROFILE"].strip().lower()
+    elif "SEAL_TYPE" in os.environ and os.environ["SEAL_TYPE"].strip().lower() == "local":
+        profile = "local"
+    else:
+        env_profile = read_env_file().get("KEY_MANAGEMENT_PROFILE")
+        if env_profile:
+            profile = env_profile.strip().lower()
+        elif seal_type == "gcpkms":
+            profile = "gcpkms"
+        elif shamir_mode == "manual" or aead_mode == "manual":
+            profile = "manual"
+        else:
+            profile = "local"
     
     if interactive and sys.stdin.isatty():
         print(f"\n{BOLD}{CYAN}================================================================================{RESET}")
@@ -432,37 +507,36 @@ def prompt_and_configure_all(interactive=True):
         except (EOFError, KeyboardInterrupt):
             expose_ports = True
 
-        # 2. Seal Backend Profile Question
-        print(f"\n{BOLD}2. KMS Seal/Unseal Backend Profile:{RESET}")
-        print("   [1] Local (Shamir / Local AEAD KMS) [Default]")
-        print("   [2] GCP Cloud KMS (Auto-Unseal & Cloud KMS)")
+        # 2. Key Management & Storage Profile Question
+        print(f"\n{BOLD}2. Master Key Management & Storage Profile:{RESET}")
+        print("   [1] Local .env Persisted (Keys stored in .env, automatic reboot recovery) [Default]")
+        print("   [2] Zero-Knowledge Manual (Display keys once, completely wipe from .env & disk)")
+        print("   [3] External Cloud KMS (Google Cloud KMS Cloud HSM Auto-Unseal)")
         try:
-            seal_choice = input("Select [1/2] (default 1): ").strip()
-            seal_type = "gcpkms" if seal_choice == "2" else "local"
+            prof_choice = input("Select [1/2/3] (default 1): ").strip()
+            if prof_choice == "2":
+                profile = "manual"
+            elif prof_choice == "3":
+                profile = "gcpkms"
+            else:
+                profile = "local"
         except (EOFError, KeyboardInterrupt):
-            seal_type = "local"
-
-        if seal_type == "local":
-            # 3. OpenBao Shamir Mode Question
-            print(f"\n{BOLD}3. OpenBao Shamir Key Management Mode:{RESET}")
-            print("   [1] Auto (Unseal key saved to disk, automated unseal on restart) [Default]")
-            print("   [2] Manual (Display key once in terminal, not saved to disk, manual input on restart)")
-            try:
-                shamir_choice = input("Select [1/2] (default 1): ").strip()
-                shamir_mode = "manual" if shamir_choice == "2" else "auto"
-            except (EOFError, KeyboardInterrupt):
-                shamir_mode = "auto"
-
-            # 4. Boundary AEAD Mode Question
-            print(f"\n{BOLD}4. Boundary AEAD KMS Key Management Mode:{RESET}")
-            print("   [1] Auto (AEAD keys persisted in .env) [Default]")
-            print("   [2] Manual (Display keys once, clear from .env, session injection required on restart)")
-            try:
-                aead_choice = input("Select [1/2] (default 1): ").strip()
-                aead_mode = "manual" if aead_choice == "2" else "auto"
-            except (EOFError, KeyboardInterrupt):
-                aead_mode = "auto"
+            profile = "local"
         print("-" * 80)
+
+    # Apply resolved settings
+    if profile == "gcpkms":
+        seal_type = "gcpkms"
+        shamir_mode = os.getenv("OPENBAO_SHAMIR_MODE", "auto")
+        aead_mode = os.getenv("BOUNDARY_AEAD_MODE", "auto")
+    elif profile == "manual":
+        seal_type = "local"
+        shamir_mode = "manual"
+        aead_mode = "manual"
+    else:
+        seal_type = "local"
+        shamir_mode = "auto"
+        aead_mode = "auto"
 
     # Apply Port Binding & .env comments
     configure_port_binding(expose_ports)
@@ -471,6 +545,7 @@ def prompt_and_configure_all(interactive=True):
     set_env_var("SEAL_TYPE", seal_type, uncomment=True)
     set_env_var("OPENBAO_SHAMIR_MODE", shamir_mode, uncomment=True)
     set_env_var("BOUNDARY_AEAD_MODE", aead_mode, uncomment=True)
+    set_env_var("KEY_MANAGEMENT_PROFILE", profile, uncomment=True)
     
     # Handle GCP KMS variables comment/uncomment (preserve existing values if in .env)
     gcp_keys = [
@@ -496,7 +571,7 @@ def prompt_and_configure_all(interactive=True):
     env_vars = read_env_file()
                 
     for k, v in env_vars.items():
-        if k not in os.environ:
+        if k not in os.environ and v:
             os.environ[k] = v
 
     # Inject OpenBao config
@@ -532,23 +607,44 @@ def prompt_and_configure_all(interactive=True):
         bnd_worker_dst.write_text(content, encoding="utf-8")
         print(f"{GREEN}[+] Injected Boundary Worker profile: {bnd_worker_profile} -> boundary/config/worker.hcl{RESET}")
 
-    # If Manual AEAD Mode is chosen, show keys and remove from .env
-    if aead_mode == "manual":
+    # If Manual Mode is chosen: Display keys securely and completely wipe from .env
+    if profile == "manual":
+        root_k = os.getenv("BOUNDARY_KMS_AEAD_ROOT_KEY") or env_vars.get("BOUNDARY_KMS_AEAD_ROOT_KEY") or generate_base64_key(32)
+        worker_k = os.getenv("BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY") or env_vars.get("BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY") or generate_base64_key(32)
+        recovery_k = os.getenv("BOUNDARY_KMS_AEAD_RECOVERY_KEY") or env_vars.get("BOUNDARY_KMS_AEAD_RECOVERY_KEY") or generate_base64_key(32)
+        sem_k = os.getenv("SEMAPHORE_ACCESS_KEY_ENCRYPTION") or env_vars.get("SEMAPHORE_ACCESS_KEY_ENCRYPTION") or generate_base64_key(32)
+
         print(f"\n{BOLD}{YELLOW}================================================================================{RESET}")
-        print(f"{BOLD}{YELLOW} [IMPORTANT] Boundary Initialized in MANUAL Key Management Mode!                {RESET}")
-        print(f"{BOLD}{YELLOW} Please securely copy and backup your AEAD KMS keys below.                      {RESET}")
-        print(f"{BOLD}{YELLOW} These keys will be removed from .env file for zero-knowledge safety.           {RESET}")
+        print(f"{BOLD}{YELLOW} [IMPORTANT] ZERO-KNOWLEDGE MANUAL KEY MANAGEMENT MODE ACTIVATED!               {RESET}")
+        print(f"{BOLD}{YELLOW} Please securely copy and store the master encryption keys below.               {RESET}")
+        print(f"{BOLD}{YELLOW} These keys will now be COMPLETELY WIPED from .env and disk!                    {RESET}")
         print(f"--------------------------------------------------------------------------------")
-        print(f" BOUNDARY_KMS_AEAD_ROOT_KEY        : {os.getenv('BOUNDARY_KMS_AEAD_ROOT_KEY')}")
-        print(f" BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY : {os.getenv('BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY')}")
-        print(f" BOUNDARY_KMS_AEAD_RECOVERY_KEY    : {os.getenv('BOUNDARY_KMS_AEAD_RECOVERY_KEY')}")
+        print(f" BOUNDARY_KMS_AEAD_ROOT_KEY        : {root_k}")
+        print(f" BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY : {worker_k}")
+        print(f" BOUNDARY_KMS_AEAD_RECOVERY_KEY    : {recovery_k}")
+        print(f" SEMAPHORE_ACCESS_KEY_ENCRYPTION   : {sem_k}")
+        print(f"--------------------------------------------------------------------------------")
+        print(f" (To restart containers later, export them in shell or enter interactively on make up)")
         print(f"================================================================================\n")
+
+        # Keep values in os.environ for current running process
+        os.environ["BOUNDARY_KMS_AEAD_ROOT_KEY"] = root_k
+        os.environ["BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY"] = worker_k
+        os.environ["BOUNDARY_KMS_AEAD_RECOVERY_KEY"] = recovery_k
+        os.environ["SEMAPHORE_ACCESS_KEY_ENCRYPTION"] = sem_k
+
+        # Wipe keys from .env file on disk
+        set_env_var("BOUNDARY_KMS_AEAD_ROOT_KEY", "", uncomment=True)
+        set_env_var("BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY", "", uncomment=True)
+        set_env_var("BOUNDARY_KMS_AEAD_RECOVERY_KEY", "", uncomment=True)
+        set_env_var("SEMAPHORE_ACCESS_KEY_ENCRYPTION", "", uncomment=True)
 
     return {
         "seal_type": seal_type,
         "expose_ports": expose_ports,
         "shamir_mode": shamir_mode,
-        "aead_mode": aead_mode
+        "aead_mode": aead_mode,
+        "key_management_profile": profile
     }
 
 def check_postgres_ready(timeout=30):
@@ -600,6 +696,7 @@ def ensure_postgres_databases():
 
 def init_boundary():
     """Initializes Boundary Database schema."""
+    ensure_runtime_keys_injected(interactive=True)
     print(f"{CYAN}[*] Initializing Boundary Database Schema...{RESET}")
     run_cmd("docker compose run --rm --entrypoint /bin/sh boundary-controller -c '/boundary/scripts/init-boundary.sh'", check=False)
     print(f"{GREEN}[+] Boundary schema initialized.{RESET}")
@@ -610,7 +707,9 @@ def init_openbao():
     run_cmd("docker compose up -d openbao", check=True)
     time.sleep(2)
     shamir_mode = os.getenv("OPENBAO_SHAMIR_MODE", "auto")
-    run_cmd(f"docker compose exec -T -e OPENBAO_SHAMIR_MODE={shamir_mode} openbao /bin/sh /openbao/scripts/init-openbao-ssh-ca.sh", check=False)
+    unseal_key = os.getenv("OPENBAO_UNSEAL_KEY", "")
+    unseal_env = f"-e PROVIDED_UNSEAL_KEY={unseal_key}" if unseal_key else ""
+    run_cmd(f"docker compose exec -T -e OPENBAO_SHAMIR_MODE={shamir_mode} {unseal_env} openbao /bin/sh /openbao/scripts/init-openbao-ssh-ca.sh", check=False)
     print(f"{GREEN}[+] OpenBao SSH CA setup finished.{RESET}")
 
 def init_semaphore():

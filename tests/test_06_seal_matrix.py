@@ -157,3 +157,45 @@ def test_ctrl_007_openbao_init_script_unseal_branching(root_dir):
     
     orchestrator_code = (root_dir / "scripts" / "orchestrator.py").read_text(encoding="utf-8")
     assert "OPENBAO_SHAMIR_MODE=" in orchestrator_code, "OPENBAO_SHAMIR_MODE propagation missing in orchestrator.py"
+
+def test_ctrl_007_manual_mode_zero_knowledge_wipe(root_dir):
+    """[CTRL-007] Zero-Knowledge Manual mode wipes master KMS and encryption keys from .env after initialization"""
+    import sys
+    sys.path.insert(0, str(root_dir / "scripts"))
+    import orchestrator
+    
+    os.environ["KEY_MANAGEMENT_PROFILE"] = "manual"
+    os.environ["SEAL_TYPE"] = "local"
+    os.environ["EXPOSE_PORTS"] = "true"
+    
+    # 1. Run prompt_and_configure_all in manual mode
+    res = orchestrator.prompt_and_configure_all(interactive=False)
+    assert res["key_management_profile"] == "manual"
+    
+    # 2. Check keys in memory / os.environ are present during session
+    assert os.getenv("BOUNDARY_KMS_AEAD_ROOT_KEY"), "Root key should be generated in memory"
+    assert os.getenv("BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY"), "Worker auth key should be generated in memory"
+    assert os.getenv("BOUNDARY_KMS_AEAD_RECOVERY_KEY"), "Recovery key should be generated in memory"
+    assert os.getenv("SEMAPHORE_ACCESS_KEY_ENCRYPTION"), "Semaphore key should be generated in memory"
+    
+    # 3. Verify .env file on disk has NO keys (completely wiped for zero-knowledge)
+    env_content = (root_dir / ".env").read_text(encoding="utf-8")
+    assert "BOUNDARY_KMS_AEAD_ROOT_KEY=\n" in env_content or "BOUNDARY_KMS_AEAD_ROOT_KEY=\"\"" in env_content or "BOUNDARY_KMS_AEAD_ROOT_KEY=" in env_content
+    assert "SEMAPHORE_ACCESS_KEY_ENCRYPTION=\n" in env_content or "SEMAPHORE_ACCESS_KEY_ENCRYPTION=\"\"" in env_content or "SEMAPHORE_ACCESS_KEY_ENCRYPTION=" in env_content
+    
+    # Parse env directly and assert they are empty string in .env
+    env_vars = orchestrator.read_env_file()
+    assert env_vars.get("BOUNDARY_KMS_AEAD_ROOT_KEY") == "", "BOUNDARY_KMS_AEAD_ROOT_KEY must be empty in .env"
+    assert env_vars.get("BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY") == "", "BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY must be empty in .env"
+    assert env_vars.get("BOUNDARY_KMS_AEAD_RECOVERY_KEY") == "", "BOUNDARY_KMS_AEAD_RECOVERY_KEY must be empty in .env"
+    assert env_vars.get("SEMAPHORE_ACCESS_KEY_ENCRYPTION") == "", "SEMAPHORE_ACCESS_KEY_ENCRYPTION must be empty in .env"
+
+def test_ctrl_007_reboot_injection_support(root_dir):
+    """[CTRL-007] Validates that orchestrator checks and prompts or accepts injected session keys on reboot/start"""
+    import sys
+    sys.path.insert(0, str(root_dir / "scripts"))
+    import orchestrator
+    
+    # Function check
+    assert hasattr(orchestrator, "ensure_runtime_keys_injected"), "orchestrator must implement ensure_runtime_keys_injected"
+

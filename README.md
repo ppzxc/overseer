@@ -62,6 +62,25 @@ make start-semaphore  # Semaphore만 기동 및 GitOps 템플릿 시딩
 make stop-boundary    # Boundary 컨테이너 중지
 ```
 
+#### 마스터 키 관리 & 스토리지 프로파일 (3가지 모드):
+- **[1] Local .env Persisted (`KEY_MANAGEMENT_PROFILE=local`, 기본값)**:
+  - OpenBao Shamir Unseal 키를 로컬 디스크(`/data/openbao/openbao-init.json`)에 저장하고 Boundary AEAD 키 및 Semaphore 키를 `.env`에 보관하여 호스트 재부팅 시 완전 자동 언실/기동됩니다.
+- **[2] Zero-Knowledge Manual (`KEY_MANAGEMENT_PROFILE=manual`)**:
+  - 초기화 시 마스터 키 5종(Boundary AEAD 3종, Semaphore 암호화 키, OpenBao Shamir 키)을 터미널에 1회 백업 박스로 출력한 후 **`.env` 파일 및 디스크에서 즉시 완전 삭제(Zero-Knowledge Wipe)**합니다.
+  - **호스트 재부팅/재시작 시 환경변수 주입 방법**:
+    - **대화형 입력**: `make up` 또는 `make bootstrap` 실행 시 키 누락을 감지하고 마스킹된 터미널 프롬프트를 통해 세션 메모리로 즉시 주입받습니다.
+    - **쉘 환경변수 주입 (비대화형/스크립트)**: 기동 전 터미널 세션에 환경변수를 export 합니다:
+      ```bash
+      export BOUNDARY_KMS_AEAD_ROOT_KEY="<YOUR_ROOT_KEY>"
+      export BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY="<YOUR_WORKER_KEY>"
+      export BOUNDARY_KMS_AEAD_RECOVERY_KEY="<YOUR_RECOVERY_KEY>"
+      export SEMAPHORE_ACCESS_KEY_ENCRYPTION="<YOUR_SEMAPHORE_KEY>"
+      export OPENBAO_UNSEAL_KEY="<YOUR_OPENBAO_UNSEAL_KEY>" # 또는 OpenBao Web UI에서 언실
+      make up
+      ```
+- **[3] External Cloud KMS (`KEY_MANAGEMENT_PROFILE=gcpkms`)**:
+  - Google Cloud KMS Cloud HSM 키를 사용하여 OpenBao 및 Boundary를 자동 언실하며 호스트에 로컬 키를 저장하지 않습니다.
+
 #### 호스트 포트 바인딩 모드:
 - **호스트 노출 모드 (`EXPOSE_PORTS=true`, 기본값)**: `compose.override.yml`이 동적 생성되어 호스트 `0.0.0.0` 인터페이스에 서비스 포트와 1:1 일치하는 포트 매핑을 바인딩합니다.
   - **OpenBao Web UI / API**: `0.0.0.0:8200:8200` ([http://localhost:8200](http://localhost:8200))
