@@ -37,7 +37,7 @@ TARGET_DIR ?=
 TARGET_FLAG := $(if $(TARGET_DIR),--target-dir $(TARGET_DIR),)
 
 env-file:
-	@if [ ! -f .env ]; then cp .env.example .env; fi
+	@if [ ! -f .env ]; then ./scripts/orchestrator.py configure-seal >/dev/null 2>&1 || cp .env.example .env; fi
 
 wait-postgres: env-file
 	@echo "[*] Waiting for PostgreSQL..."

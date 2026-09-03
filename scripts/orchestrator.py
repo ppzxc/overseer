@@ -221,31 +221,47 @@ def run_preflight_checks(exit_on_failure=True):
 def ensure_env_file():
     """
     Ensures .env exists from .env.example with newly generated secure random keys.
+    Also guarantees all KMS/encryption keys and passwords in .env are non-empty and securely generated.
     """
     env_file = ROOT_DIR / ".env"
     example = ROOT_DIR / ".env.example"
+    
     if not env_file.exists() and example.exists():
         print(f"{CYAN}[*] Generating fresh .env with unique cryptographic keys...{RESET}")
-        content = example.read_text(encoding="utf-8")
+        shutil.copy2(example, env_file)
         
-        boundary_db_password = generate_random_password(18)
-        semaphore_db_password = generate_random_password(18)
-        semaphore_admin_password = generate_random_password(18)
-        boundary_kms_root_key = generate_base64_key(32)
-        boundary_kms_worker_auth_key = generate_base64_key(32)
-        boundary_kms_recovery_key = generate_base64_key(32)
-        semaphore_encryption_key = generate_base64_key(32)
+    if env_file.exists():
+        env_vars = read_env_file(include_comments=False)
         
-        content = content.replace("BOUNDARY_DATABASE_PASSWORD=boundarypassword", f"BOUNDARY_DATABASE_PASSWORD={boundary_db_password}")
-        content = content.replace("SEMAPHORE_DATABASE_PASSWORD=semaphorepassword", f"SEMAPHORE_DATABASE_PASSWORD={semaphore_db_password}")
-        content = content.replace("BOUNDARY_KMS_AEAD_ROOT_KEY=sP191WKGvgcuEmhdREQBPBG5nhAAda4e+bQQnFRinCU=", f"BOUNDARY_KMS_AEAD_ROOT_KEY={boundary_kms_root_key}")
-        content = content.replace("BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY=8pv7uU8g58aN8y1n8PqR8G3z7rW+V8eY9nQ2x3Z1v4U=", f"BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY={boundary_kms_worker_auth_key}")
-        content = content.replace("BOUNDARY_KMS_AEAD_RECOVERY_KEY=uK382WKGvgcuEmhdREQBPBG5nhAAda4e+bQQnFRinCU=", f"BOUNDARY_KMS_AEAD_RECOVERY_KEY={boundary_kms_recovery_key}")
-        content = content.replace("SEMAPHORE_ADMIN_PASSWORD=semaphoreadmin", f"SEMAPHORE_ADMIN_PASSWORD={semaphore_admin_password}")
-        content = content.replace("SEMAPHORE_ACCESS_KEY_ENCRYPTION=GS3py5Y8+GvF12x0fTfR18k2h4eE9W2d1C8N6Q8T4=0", f"SEMAPHORE_ACCESS_KEY_ENCRYPTION={semaphore_encryption_key}")
-        
-        env_file.write_text(content, encoding="utf-8")
-        print(f"{GREEN}[+] Fresh .env created with newly generated 32-byte KMS/encryption keys and passwords.{RESET}")
+        # 1. Generate passwords if default or empty
+        if env_vars.get("BOUNDARY_DATABASE_PASSWORD") in [None, "", "boundarypassword"]:
+            set_env_var("BOUNDARY_DATABASE_PASSWORD", generate_random_password(18), uncomment=True)
+        if env_vars.get("SEMAPHORE_DATABASE_PASSWORD") in [None, "", "semaphorepassword"]:
+            set_env_var("SEMAPHORE_DATABASE_PASSWORD", generate_random_password(18), uncomment=True)
+        if env_vars.get("SEMAPHORE_ADMIN_PASSWORD") in [None, "", "semaphoreadmin"]:
+            set_env_var("SEMAPHORE_ADMIN_PASSWORD", generate_random_password(18), uncomment=True)
+            
+        # 2. Generate 32-byte cryptographic keys if empty or dummy
+        dummy_keys = [
+            "sP191WKGvgcuEmhdREQBPBG5nhAAda4e+bQQnFRinCU=",
+            "8pv7uU8g58aN8y1n8PqR8G3z7rW+V8eY9nQ2x3Z1v4U=",
+            "uK382WKGvgcuEmhdREQBPBG5nhAAda4e+bQQnFRinCU=",
+            "GS3py5Y8+GvF12x0fTfR18k2h4eE9W2d1C8N6Q8T4=0",
+        ]
+        if env_vars.get("BOUNDARY_KMS_AEAD_ROOT_KEY") in [None, ""] + dummy_keys:
+            set_env_var("BOUNDARY_KMS_AEAD_ROOT_KEY", generate_base64_key(32), uncomment=True)
+        if env_vars.get("BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY") in [None, ""] + dummy_keys:
+            set_env_var("BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY", generate_base64_key(32), uncomment=True)
+        if env_vars.get("BOUNDARY_KMS_AEAD_RECOVERY_KEY") in [None, ""] + dummy_keys:
+            set_env_var("BOUNDARY_KMS_AEAD_RECOVERY_KEY", generate_base64_key(32), uncomment=True)
+        if env_vars.get("SEMAPHORE_ACCESS_KEY_ENCRYPTION") in [None, ""] + dummy_keys:
+            set_env_var("SEMAPHORE_ACCESS_KEY_ENCRYPTION", generate_base64_key(32), uncomment=True)
+            
+        # Reload into os.environ only if not already present in environment
+        fresh_vars = read_env_file(include_comments=False)
+        for k, v in fresh_vars.items():
+            if k not in os.environ:
+                os.environ[k] = v
 
 def prompt_edit_env_file(interactive=True):
     """
