@@ -206,10 +206,14 @@ def run_preflight_checks(exit_on_failure=True):
     print(f"\n{BOLD}{GREEN}✅ All Pre-flight checks passed! Proceeding...{RESET}\n")
     return True
 
-def ensure_env_file():
-    """Ensures .env exists from .env.example with newly generated secure random keys."""
+def ensure_env_file(interactive=True):
+    """
+    Ensures .env exists from .env.example with newly generated secure random keys.
+    If generated in an interactive session, prompts the user to open and edit .env with $EDITOR (default vim).
+    """
     env_file = ROOT_DIR / ".env"
     example = ROOT_DIR / ".env.example"
+    is_fresh = False
     if not env_file.exists() and example.exists():
         print(f"{CYAN}[*] Generating fresh .env with unique cryptographic keys...{RESET}")
         content = example.read_text(encoding="utf-8")
@@ -231,6 +235,45 @@ def ensure_env_file():
         
         env_file.write_text(content, encoding="utf-8")
         print(f"{GREEN}[+] Fresh .env created with newly generated 32-byte KMS/encryption keys and passwords.{RESET}")
+        is_fresh = True
+
+    # If interactive and TTY, offer to edit .env
+    if interactive and sys.stdin.isatty() and env_file.exists():
+        editor = os.getenv("EDITOR", "vim")
+        prompt_msg = f"Would you like to review and edit .env using '{editor}' before proceeding? [y/N]: "
+        if is_fresh:
+            prompt_msg = f"A new .env file was created. Would you like to review/edit credentials in '{editor}'? [Y/n]: "
+        try:
+            choice = input(prompt_msg).strip().lower()
+            should_edit = (choice in ["y", "yes", ""]) if is_fresh else (choice in ["y", "yes"])
+            if should_edit:
+                print(f"{CYAN}[*] Opening .env with {editor}...{RESET}")
+                subprocess.run([editor, str(env_file)])
+                print(f"{GREEN}[+] Completed editing .env.{RESET}")
+        except (EOFError, KeyboardInterrupt):
+            print()
+
+    # Synchronize BOUNDARY_POSTGRES_URL password if POSTGRES_PASSWORD or POSTGRES_USER was edited
+    sync_env_database_url()
+
+def sync_env_database_url():
+    """Ensures BOUNDARY_POSTGRES_URL matches POSTGRES_USER and POSTGRES_PASSWORD in .env."""
+    env_file = ROOT_DIR / ".env"
+    if not env_file.exists():
+        return
+    env_content = env_file.read_text(encoding="utf-8")
+    pg_user = None
+    pg_pass = None
+    for line in env_content.splitlines():
+        line = line.strip()
+        if line.startswith("POSTGRES_USER="):
+            pg_user = line.split("=", 1)[1].strip().strip('"').strip("'")
+        elif line.startswith("POSTGRES_PASSWORD="):
+            pg_pass = line.split("=", 1)[1].strip().strip('"').strip("'")
+    if pg_user and pg_pass:
+        # Check if BOUNDARY_POSTGRES_URL needs update
+        new_url = f"postgresql://{pg_user}:{pg_pass}@postgres:5432/boundary?sslmode=disable"
+        set_env_var("BOUNDARY_POSTGRES_URL", new_url, uncomment=True)
 
 def set_env_var(key: str, value: str, uncomment: bool = True):
     """Sets a variable in .env, either uncommented (KEY=value) or commented (# KEY=value)."""
@@ -327,7 +370,7 @@ def prompt_and_configure_all(interactive=True):
     3. OpenBao Shamir Mode (Auto persistent vs Manual ephemeral)
     4. Boundary AEAD Mode (Auto persistent vs Manual ephemeral)
     """
-    ensure_env_file()
+    ensure_env_file(interactive=interactive)
     
     seal_type = get_configured_seal_type()
     expose_ports = os.getenv("EXPOSE_PORTS", "true").lower() != "false"
