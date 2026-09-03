@@ -694,6 +694,17 @@ def ensure_postgres_databases():
         run_cmd(f"docker compose exec -T postgres psql -U {bnd_user} -d {bnd_db} -c \"GRANT ALL PRIVILEGES ON DATABASE {sem_db} TO {sem_user};\"", check=False)
         print(f"{GREEN}[+] Database '{sem_db}' ready.{RESET}")
 
+def wait_for_container_running(service_name: str, timeout: int = 20) -> bool:
+    """Waits until a Docker Compose service reaches 'running' state."""
+    start = time.time()
+    while time.time() - start < timeout:
+        res = run_cmd(f"docker compose ps --format '{{{{.State}}}}' {service_name}", check=False, capture=True)
+        state = res.stdout.strip().lower()
+        if "running" in state:
+            return True
+        time.sleep(1)
+    return False
+
 def init_boundary():
     """Initializes Boundary Database schema."""
     ensure_runtime_keys_injected(interactive=True)
@@ -705,12 +716,20 @@ def init_openbao():
     """Initializes and unseals OpenBao, setting up SSH CA."""
     print(f"{CYAN}[*] Initializing and unsealing OpenBao & SSH CA...{RESET}")
     run_cmd("docker compose up -d openbao", check=True)
+    wait_for_container_running("openbao", timeout=15)
     time.sleep(2)
     shamir_mode = os.getenv("OPENBAO_SHAMIR_MODE", "auto")
     unseal_key = os.getenv("OPENBAO_UNSEAL_KEY", "")
     unseal_env = f"-e PROVIDED_UNSEAL_KEY={unseal_key}" if unseal_key else ""
-    run_cmd(f"docker compose exec -T -e OPENBAO_SHAMIR_MODE={shamir_mode} {unseal_env} openbao /bin/sh /openbao/scripts/init-openbao-ssh-ca.sh", check=False)
-    print(f"{GREEN}[+] OpenBao SSH CA setup finished.{RESET}")
+    
+    max_retries = 3
+    for attempt in range(1, max_retries + 1):
+        res = run_cmd(f"docker compose exec -T -e OPENBAO_SHAMIR_MODE={shamir_mode} {unseal_env} openbao /bin/sh /openbao/scripts/init-openbao-ssh-ca.sh", check=False)
+        if res.returncode == 0:
+            print(f"{GREEN}[+] OpenBao SSH CA setup finished.{RESET}")
+            return
+        time.sleep(2)
+    print(f"{YELLOW}[!] OpenBao SSH CA setup finished with non-zero exit code.{RESET}")
 
 def init_semaphore():
     """Seeds Semaphore project, keys, gitops repo, and task templates."""
