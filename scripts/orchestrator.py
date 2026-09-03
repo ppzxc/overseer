@@ -218,7 +218,7 @@ def run_preflight_checks(exit_on_failure=True):
     print(f"\n{BOLD}{GREEN}✅ All Pre-flight checks passed! Proceeding...{RESET}\n")
     return True
 
-def ensure_env_file():
+def ensure_env_file(interactive=False):
     """
     Ensures .env exists from .env.example with newly generated secure random keys.
     Also guarantees all KMS/encryption keys and passwords in .env are non-empty and securely generated.
@@ -226,6 +226,20 @@ def ensure_env_file():
     env_file = ROOT_DIR / ".env"
     example = ROOT_DIR / ".env.example"
     
+    if env_file.exists() and interactive and sys.stdin.isatty():
+        print(f"\n{BOLD}{YELLOW}================================================================================{RESET}")
+        print(f"{BOLD}{YELLOW}               Existing .env File Detected                                      {RESET}")
+        print(f"{BOLD}{YELLOW}================================================================================{RESET}\n")
+        print(f" An existing {BOLD}.env{RESET} file was found.")
+        print(f" Resetting will regenerate fresh random credentials from the latest {BOLD}.env.example{RESET} template.")
+        try:
+            choice = input("Reset and regenerate .env to latest template? [y/N]: ").strip().lower()
+            if choice in ["y", "yes"]:
+                env_file.unlink()
+                print(f"{GREEN}[+] Removed existing .env file. Regenerating from .env.example...{RESET}")
+        except (EOFError, KeyboardInterrupt):
+            pass
+
     if not env_file.exists() and example.exists():
         print(f"{CYAN}[*] Generating fresh .env with unique cryptographic keys...{RESET}")
         shutil.copy2(example, env_file)
@@ -396,7 +410,7 @@ def prompt_and_configure_all(interactive=True):
     3. OpenBao Shamir Mode (Auto persistent vs Manual ephemeral)
     4. Boundary AEAD Mode (Auto persistent vs Manual ephemeral)
     """
-    ensure_env_file()
+    ensure_env_file(interactive=interactive)
     
     seal_type = get_configured_seal_type()
     expose_ports = os.getenv("EXPOSE_PORTS", "true").lower() != "false"
