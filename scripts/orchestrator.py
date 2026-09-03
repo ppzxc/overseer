@@ -218,14 +218,12 @@ def run_preflight_checks(exit_on_failure=True):
     print(f"\n{BOLD}{GREEN}✅ All Pre-flight checks passed! Proceeding...{RESET}\n")
     return True
 
-def ensure_env_file(interactive=True):
+def ensure_env_file():
     """
     Ensures .env exists from .env.example with newly generated secure random keys.
-    If generated in an interactive session, prompts the user to open and edit .env with $EDITOR (default vim).
     """
     env_file = ROOT_DIR / ".env"
     example = ROOT_DIR / ".env.example"
-    is_fresh = False
     if not env_file.exists() and example.exists():
         print(f"{CYAN}[*] Generating fresh .env with unique cryptographic keys...{RESET}")
         content = example.read_text(encoding="utf-8")
@@ -248,21 +246,28 @@ def ensure_env_file(interactive=True):
         
         env_file.write_text(content, encoding="utf-8")
         print(f"{GREEN}[+] Fresh .env created with newly generated 32-byte KMS/encryption keys and passwords.{RESET}")
-        is_fresh = True
 
-    # If interactive and TTY, offer to edit .env
+def prompt_edit_env_file(interactive=True):
+    """
+    Offers to open and edit .env with $EDITOR (default vim) right before starting containers.
+    """
+    env_file = ROOT_DIR / ".env"
     if interactive and sys.stdin.isatty() and env_file.exists():
         editor = os.getenv("EDITOR", "vim")
-        prompt_msg = f"Would you like to review and edit .env using '{editor}' before proceeding? [y/N]: "
-        if is_fresh:
-            prompt_msg = f"A new .env file was created. Would you like to review/edit credentials in '{editor}'? [Y/n]: "
+        print(f"\n{BOLD}{CYAN}================================================================================{RESET}")
+        print(f"{BOLD}{CYAN}                    Final .env Review & Customization                           {RESET}")
+        print(f"{BOLD}{CYAN}================================================================================{RESET}\n")
+        print(f" All configuration and credentials have been written to {BOLD}.env{RESET}.")
         try:
-            choice = input(prompt_msg).strip().lower()
-            should_edit = (choice in ["y", "yes", ""]) if is_fresh else (choice in ["y", "yes"])
-            if should_edit:
+            choice = input(f"Would you like to review and edit .env using '{editor}' before starting containers? [y/N]: ").strip().lower()
+            if choice in ["y", "yes"]:
                 print(f"{CYAN}[*] Opening .env with {editor}...{RESET}")
                 subprocess.run([editor, str(env_file)])
                 print(f"{GREEN}[+] Completed editing .env.{RESET}")
+                # Reload env vars to process environment in case of edits
+                env_vars = read_env_file()
+                for k, v in env_vars.items():
+                    os.environ[k] = v
         except (EOFError, KeyboardInterrupt):
             print()
 
@@ -375,7 +380,7 @@ def prompt_and_configure_all(interactive=True):
     3. OpenBao Shamir Mode (Auto persistent vs Manual ephemeral)
     4. Boundary AEAD Mode (Auto persistent vs Manual ephemeral)
     """
-    ensure_env_file(interactive=interactive)
+    ensure_env_file()
     
     seal_type = get_configured_seal_type()
     expose_ports = os.getenv("EXPOSE_PORTS", "true").lower() != "false"
@@ -716,6 +721,9 @@ def bootstrap(target_dir_param=None):
     
     # 0.1 Prompt and configure all modular options
     prompt_and_configure_all(interactive=True)
+    
+    # 0.2 Final Review & Customization in $EDITOR (vim) before starting containers
+    prompt_edit_env_file(interactive=True)
     
     # 1. Start Postgres & Wait
     run_cmd("docker compose up -d postgres", check=True)
