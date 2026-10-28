@@ -86,7 +86,7 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      BOUNDARY_POSTGRES_URL: "postgresql://${BOUNDARY_DATABASE_USER:-boundary}:${BOUNDARY_DATABASE_PASSWORD:-boundarypassword}@postgres:5432/${BOUNDARY_DATABASE:-boundary}?sslmode=disable"
+      BOUNDARY_POSTGRES_URL: "${BOUNDARY_POSTGRES_URL:-postgresql://${BOUNDARY_DATABASE_USER:-boundary}:${BOUNDARY_DATABASE_PASSWORD}@postgres:5432/${BOUNDARY_DATABASE:-boundary}?sslmode=disable}"
       BOUNDARY_KMS_AEAD_ROOT_KEY: ${BOUNDARY_KMS_AEAD_ROOT_KEY:-}
       BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY: ${BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY:-}
       BOUNDARY_KMS_AEAD_RECOVERY_KEY: ${BOUNDARY_KMS_AEAD_RECOVERY_KEY:-}
