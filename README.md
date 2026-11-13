@@ -45,7 +45,7 @@ make logs
 make down
 make start-openbao
 make start-semaphore
-make production-sync TARGET_DIR=/home/ppzxc/services/overseer SERVICES_ROOT=/opt/services DATA_ROOT=/data
+make production-sync TARGET_DIR=/opt/services/overseer SERVICES_ROOT=/opt/services DATA_ROOT=/data
 ```
 
 `make configure-seal`에서 OpenBao의 로컬 Shamir 또는 GCP Cloud KMS 프로파일을 설정할 수 있습니다. Semaphore 키스토어 암호화 키(`SEMAPHORE_ACCESS_KEY_ENCRYPTION`)는 SQLite DB의 자격증명을 읽는 데 필요하므로 기존 값을 보존하세요.

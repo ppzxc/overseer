@@ -57,9 +57,9 @@
    cd /home/ppzxc/services/overseer
    read -rsp 'Existing Semaphore encryption key: ' SEMAPHORE_ACCESS_KEY_ENCRYPTION; echo
    export SEMAPHORE_ACCESS_KEY_ENCRYPTION
-   docker compose --project-directory /opt/services/semaphore --env-file /home/ppzxc/services/overseer/.env -f /opt/services/semaphore/compose.yml up -d semaphore
-   docker compose --project-directory /opt/services/semaphore --env-file /home/ppzxc/services/overseer/.env -f /opt/services/semaphore/compose.yml logs --no-color semaphore
-   docker compose --project-directory /opt/services/semaphore --env-file /home/ppzxc/services/overseer/.env -f /opt/services/semaphore/compose.yml stop semaphore
+   docker compose --project-directory /opt/services/semaphore --env-file /opt/services/overseer/.env -f /opt/services/semaphore/compose.yml up -d semaphore
+   docker compose --project-directory /opt/services/semaphore --env-file /opt/services/overseer/.env -f /opt/services/semaphore/compose.yml logs --no-color semaphore
+   docker compose --project-directory /opt/services/semaphore --env-file /opt/services/overseer/.env -f /opt/services/semaphore/compose.yml stop semaphore
    unset SEMAPHORE_ACCESS_KEY_ENCRYPTION
    ```
 
