@@ -4,8 +4,10 @@ Verifies that OpenBao and Semaphore APIs are reachable and healthy.
 """
 
 import os
+import json
 import pytest
 import requests
+from types import SimpleNamespace
 
 def test_ctrl_001_semaphore_sqlite_storage(root_dir):
     """[CTRL-001] Semaphore uses a persistent SQLite database by default."""
@@ -84,6 +86,58 @@ def test_ctrl_005_semaphore_seeding(root_dir):
     content = init_script.read_text(encoding="utf-8")
     assert "Overseer Infrastructure" in content, "Project name missing in init-semaphore.sh"
     assert "playbooks/provision_servers.yml" in content, "playbooks template missing in init-semaphore.sh"
+
+def test_manual_openbao_restart_skips_ca_reinitialization(root_dir, monkeypatch):
+    """An initialized, unsealed manual-seal instance must not rerun first-boot setup."""
+    import sys
+    sys.path.insert(0, str(root_dir / "scripts"))
+    import orchestrator
+
+    monkeypatch.setenv("OPENBAO_SHAMIR_MODE", "manual")
+    calls = []
+
+    def fake_run(cmd, check=True, capture=False, **kwargs):
+        calls.append(cmd)
+        return SimpleNamespace(returncode=0, stdout=json.dumps({"initialized": True, "sealed": False}), stderr="")
+
+    monkeypatch.setattr(orchestrator, "run_cmd", fake_run)
+    monkeypatch.setattr(orchestrator, "wait_for_container_running", lambda *args, **kwargs: True)
+    monkeypatch.setattr(orchestrator.time, "sleep", lambda *_: None)
+
+    orchestrator.init_openbao()
+
+    assert len(calls) == 2
+    assert "bao status" in calls[1]
+    assert all("init-openbao-ssh-ca.sh" not in command for command in calls)
+
+def test_manual_openbao_sealed_restart_prompts_for_unseal(root_dir, monkeypatch):
+    """A sealed manual instance asks via Bao's hidden interactive unseal prompt."""
+    import sys
+    sys.path.insert(0, str(root_dir / "scripts"))
+    import orchestrator
+
+    monkeypatch.setenv("OPENBAO_SHAMIR_MODE", "manual")
+    statuses = iter((
+        {"initialized": True, "sealed": True},
+        {"initialized": True, "sealed": False},
+    ))
+    calls = []
+
+    def fake_run(cmd, check=True, capture=False, **kwargs):
+        calls.append(cmd)
+        if "bao status" in cmd:
+            return SimpleNamespace(returncode=2, stdout=json.dumps(next(statuses)), stderr="")
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(orchestrator, "run_cmd", fake_run)
+    monkeypatch.setattr(orchestrator, "wait_for_container_running", lambda *args, **kwargs: True)
+    monkeypatch.setattr(orchestrator.time, "sleep", lambda *_: None)
+    monkeypatch.setattr(sys, "stdin", SimpleNamespace(isatty=lambda: True))
+
+    orchestrator.init_openbao()
+
+    assert any("bao operator unseal" in command for command in calls)
+    assert all("init-openbao-ssh-ca.sh" not in command for command in calls)
 
 def test_ctrl_006_preflight_validator(root_dir):
     """[CTRL-006] Automated Pre-Flight Prerequisites Validator"""

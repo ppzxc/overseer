@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import argparse
 import base64
+import json
 import secrets
 import string
 import shlex
@@ -613,13 +614,46 @@ def init_openbao():
     run_cmd(compose_command("openbao", "up", "-d", "openbao"), check=True)
     wait_for_container_running("openbao", timeout=15)
     time.sleep(2)
-    shamir_mode = os.getenv("OPENBAO_SHAMIR_MODE", "auto")
-    unseal_key = os.getenv("OPENBAO_UNSEAL_KEY", "")
-    unseal_env = f"-e PROVIDED_UNSEAL_KEY={unseal_key}" if unseal_key else ""
+    shamir_mode = os.getenv("OPENBAO_SHAMIR_MODE") or read_env_file().get("OPENBAO_SHAMIR_MODE", "auto")
+    status_res = run_cmd(
+        compose_command("openbao", "exec", "-T", "openbao", "bao", "status", "-format=json"),
+        check=False,
+        capture=True,
+    )
+    try:
+        bao_status = json.loads(status_res.stdout)
+    except (json.JSONDecodeError, TypeError):
+        raise RuntimeError("Could not read OpenBao status safely; refusing to run initialization.")
+
+    if "initialized" not in bao_status or "sealed" not in bao_status:
+        raise RuntimeError("OpenBao status is incomplete; refusing to run initialization.")
+
+    if bao_status.get("initialized") and not bao_status.get("sealed"):
+        print(f"{GREEN}[+] OpenBao is already initialized and unsealed; skipping initialization.{RESET}")
+        return
+
+    if bao_status.get("initialized") and bao_status.get("sealed") and shamir_mode == "manual":
+        if not sys.stdin.isatty():
+            raise RuntimeError("OpenBao is sealed in manual mode; run this command interactively to enter the unseal key.")
+        print(f"{YELLOW}[!] Enter the manual unseal key in OpenBao's hidden prompt.{RESET}")
+        run_cmd(compose_command("openbao", "exec", "-it", "openbao", "bao", "operator", "unseal"), check=True)
+        verify_res = run_cmd(
+            compose_command("openbao", "exec", "-T", "openbao", "bao", "status", "-format=json"),
+            check=False,
+            capture=True,
+        )
+        try:
+            verified_status = json.loads(verify_res.stdout)
+        except (json.JSONDecodeError, TypeError):
+            raise RuntimeError("Could not verify OpenBao unseal status.")
+        if not verified_status.get("initialized") or verified_status.get("sealed"):
+            raise RuntimeError("OpenBao remains sealed after the manual unseal attempt.")
+        print(f"{GREEN}[+] OpenBao unsealed successfully; existing SSH CA configuration is retained.{RESET}")
+        return
     
     max_retries = 3
     for attempt in range(1, max_retries + 1):
-        res = run_cmd(compose_command("openbao", "exec", "-T", "-u", "0:0", "-e", f"OPENBAO_SHAMIR_MODE={shamir_mode}", *(["-e", f"PROVIDED_UNSEAL_KEY={unseal_key}"] if unseal_key else []), "openbao", "/bin/sh", "/openbao/scripts/init-openbao-ssh-ca.sh"), check=False)
+        res = run_cmd(compose_command("openbao", "exec", "-T", "-u", "0:0", "-e", f"OPENBAO_SHAMIR_MODE={shamir_mode}", "openbao", "/bin/sh", "/openbao/scripts/init-openbao-ssh-ca.sh"), check=False)
         if res.returncode == 0:
             print(f"{GREEN}[+] OpenBao SSH CA setup finished.{RESET}")
             return
