@@ -44,6 +44,13 @@ def test_ctrl_003_bootstrap_workflow(root_dir):
     assert "get_configured_data_dir" in orch_content, "orchestrator.py must support centralized DATA_DIR"
     assert "ensure_backend_network" in orch_content, "orchestrator.py must automatically ensure backend network"
 
+    bootstrap_body = orch_content.split("def bootstrap(", 1)[1].split("def check_service_status(", 1)[0]
+    status_body = orch_content.split("def check_service_status(", 1)[1].split("def main(", 1)[0]
+    assert "docker compose up -d --remove-orphans openbao semaphore" in bootstrap_body
+    assert "Boundary" not in bootstrap_body and "boundary" not in bootstrap_body.lower()
+    assert "OpenBao API" in status_body and "Semaphore UI" in status_body
+    assert "Boundary" not in status_body and "boundary" not in status_body.lower()
+
 def test_bao_ctrl_001_openbao_health(http_session, openbao_url):
     """[BAO-CTRL-001] OpenBao Server Initialization and Unseal status"""
     try:

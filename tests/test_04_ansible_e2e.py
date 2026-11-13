@@ -37,6 +37,7 @@ def test_ctrl_005_gitops_seeding_contract(root_dir):
     # 1. 원격 GitOps 레포지토리 연동 검증
     assert "ANSIBLE_REPO_URL" in script_content, "GitOps repository URL variable must be defined"
     assert "Node Provisioner GitOps" in script_content, "GitOps repository name must be configured"
+    assert 'PROJECT_NAME="Overseer Infrastructure"' in script_content, "The local Semaphore project must be retained"
     
     # 2. 핵심 오케스트레이션 템플릿 계약 검증
     expected_templates = [
@@ -50,6 +51,8 @@ def test_ctrl_005_gitops_seeding_contract(root_dir):
     assert "playbooks/provision.yml" not in script_content
     assert 'select(.name == "2. Provision Overseer Control Plane" or .name == "3. Provision Full Stack (All)")' in script_content
     assert "-X DELETE" in script_content, "Retired templates must be removed from existing projects"
+    assert '"${TEMPLATES_URL}/${TEMPLATE_ID}"' in script_content, "Deletion must be scoped to retired templates"
+    assert '"${SEMAPHORE_ADDR}/api/projects/' not in script_content, "The Semaphore project must not be deleted"
     assert "-X PUT" in script_content, "Existing templates must be reconciled to current settings"
     assert "4. Regular Maintenance & Patching" in script_content, "Legacy maintenance templates must be renamed"
     assert "5. Dry-Run Check & Diff (Simulation)" in script_content, "Legacy dry-run templates must be renamed"

@@ -742,7 +742,7 @@ def bootstrap(target_dir_param=None):
     init_openbao()
     
     # 2. Start the stack and remove containers for services removed from Compose.
-    # Existing bind-mounted PostgreSQL data is left untouched.
+    # Existing data directories for removed services are left untouched.
     print(f"{CYAN}[*] Starting OpenBao & Semaphore UI...{RESET}")
     run_cmd("docker compose up -d --remove-orphans openbao semaphore", check=True)
     
