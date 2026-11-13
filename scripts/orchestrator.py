@@ -17,7 +17,7 @@ import secrets
 import string
 import shlex
 from pathlib import Path
-from typing import NamedTuple, List
+from typing import NamedTuple, List, Optional
 
 class CheckResult(NamedTuple):
     category: str
@@ -690,7 +690,7 @@ def init_semaphore():
     if init_script.exists():
         run_cmd(str(init_script), check=False)
 
-def deploy_to_target(source_dir: Path, target_dir: Path, services_root: Path | None = None, data_root: Path | None = None):
+def deploy_to_target(source_dir: Path, target_dir: Path, services_root: Optional[Path] = None, data_root: Optional[Path] = None):
     """
     Copies only production-critical operational files to the target deployment directory,
     excluding tests, docs, git repository, test artifacts, and caches.
