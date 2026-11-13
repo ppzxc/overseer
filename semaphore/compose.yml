@@ -27,7 +27,7 @@ services:
       - ${DATA_DIR:-/data}/network-backups:/var/backups
       - ${DATA_DIR:-/data}/openbao:/openbao/data:ro
       - ~/.ssh:/root/.ssh:ro
-      - ./semaphore/requirements.txt:/etc/semaphore/requirements.txt:ro
+      - ./requirements.txt:/etc/semaphore/requirements.txt:ro
     networks:
       - backend
     healthcheck:

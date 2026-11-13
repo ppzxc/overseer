@@ -113,7 +113,7 @@ def compose_command(service: str, *arguments: str) -> str:
 
     command = [
         "docker", "compose",
-        "--project-directory", str(ROOT_DIR),
+        "--project-directory", str(ROOT_DIR / service),
         "--env-file", str(ROOT_DIR / ".env"),
         "-f", str(compose_file),
     ]
