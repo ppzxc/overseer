@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """
 Overseer Control Plane Lifecycle & Bootstrap Orchestrator
-Provides a deep, unified interface for full-stack service initialization,
-dependency-aware healthchecks, automated database migrations, pluggable SEAL/UNSEAL profiles,
-port exposure branching, external network bootstrapping, and manual/auto key management.
+Provides unified initialization for OpenBao and Semaphore, health checks,
+pluggable OpenBao seal profiles, port exposure, network bootstrapping, and key management.
 """
 
 import os
@@ -13,10 +12,12 @@ import shutil
 import subprocess
 import argparse
 import base64
+import json
 import secrets
 import string
+import shlex
 from pathlib import Path
-from typing import NamedTuple, List
+from typing import NamedTuple, List, Optional
 
 class CheckResult(NamedTuple):
     category: str
@@ -27,6 +28,30 @@ class CheckResult(NamedTuple):
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 
+SERVICE_ENV_KEYS = {
+    "openbao": {
+        "DATA_DIR", "OPENBAO_COMPOSE_DIR", "OPENBAO_CONFIG_DIR", "OPENBAO_SCRIPTS_DIR",
+        "CURRENT_UID", "CURRENT_GID", "SEAL_TYPE", "OPENBAO_SHAMIR_MODE",
+        "KEY_MANAGEMENT_PROFILE", "BAO_ADDR", "BAO_DEV_ROOT_TOKEN_ID", "GCP_PROJECT",
+        "GCP_REGION", "GCP_KEY_RING", "GCP_OPENBAO_KEY", "GOOGLE_APPLICATION_CREDENTIALS",
+    },
+    "semaphore": {
+        "DATA_DIR", "SEMAPHORE_COMPOSE_DIR", "SEMAPHORE_CONFIG_DIR", "CURRENT_UID",
+        "CURRENT_GID", "EXPOSE_PORTS", "SEMAPHORE_PORT_BINDING", "SEMAPHORE_ADDR",
+        "SEMAPHORE_ADMIN", "SEMAPHORE_ADMIN_NAME", "SEMAPHORE_ADMIN_EMAIL",
+        "SEMAPHORE_ADMIN_PASSWORD", "SEMAPHORE_ACCESS_KEY_ENCRYPTION",
+        "ANSIBLE_REPO_URL", "ANSIBLE_REPO_BRANCH",
+    },
+}
+
+def get_service_env_file(service: str) -> Path:
+    """Return the service-specific secret/config file, outside production Compose folders."""
+    if service not in SERVICE_ENV_KEYS:
+        raise ValueError(f"Unknown service: {service}")
+    if ROOT_DIR.resolve() == Path("/opt/services/overseer"):
+        return Path("/data") / service / "config" / ".env"
+    return ROOT_DIR / service / ".env"
+
 if hasattr(os, "getuid") and hasattr(os, "getgid"):
     os.environ.setdefault("CURRENT_UID", str(os.getuid()))
     os.environ.setdefault("CURRENT_GID", str(os.getgid()))
@@ -34,26 +59,33 @@ else:
     os.environ.setdefault("CURRENT_UID", "1000")
     os.environ.setdefault("CURRENT_GID", "1000")
 
-def read_env_file(include_comments: bool = False) -> dict:
+def read_env_file(include_comments: bool = False, path=None, service=None) -> dict:
     """Parses .env file into a dictionary of key-value pairs."""
-    env_file = ROOT_DIR / ".env"
     env_vars = {}
-    if not env_file.exists():
-        return env_vars
-    for line in env_file.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line:
+    if path:
+        env_files = [Path(path)]
+    elif service:
+        env_files = [get_service_env_file(service)]
+    else:
+        # Read legacy root .env first during migration; module files take precedence.
+        env_files = [ROOT_DIR / ".env", *(get_service_env_file(name) for name in SERVICE_ENV_KEYS)]
+    for env_file in env_files:
+        if not env_file.exists():
             continue
-        if line.startswith("#"):
-            if include_comments:
-                stripped_comment = line.lstrip("#").strip()
-                if "=" in stripped_comment:
-                    k, v = stripped_comment.split("=", 1)
-                    env_vars[k.strip()] = v.strip().strip('"').strip("'")
-            continue
-        if "=" in line:
-            k, v = line.split("=", 1)
-            env_vars[k.strip()] = v.strip().strip('"').strip("'")
+        for line in env_file.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            if line.startswith("#"):
+                if include_comments:
+                    stripped_comment = line.lstrip("#").strip()
+                    if "=" in stripped_comment:
+                        k, v = stripped_comment.split("=", 1)
+                        env_vars[k.strip()] = v.strip().strip('"').strip("'")
+                continue
+            if "=" in line:
+                k, v = line.split("=", 1)
+                env_vars[k.strip()] = v.strip().strip('"').strip("'")
     return env_vars
 
 def get_configured_data_dir():
@@ -81,6 +113,20 @@ def generate_random_password(length=16):
     alphabet = string.ascii_letters + string.digits
     return "".join(secrets.choice(alphabet) for _ in range(length))
 
+def copy2_unless_same(source: Path, destination: Path):
+    """Copy a file while allowing production sync source and target roots to coincide."""
+    source = Path(source)
+    destination = Path(destination)
+    if source.resolve() != destination.resolve():
+        shutil.copy2(source, destination)
+
+def copytree_unless_same(source: Path, destination: Path):
+    """Merge a tree unless source and destination already identify the same directory."""
+    source = Path(source)
+    destination = Path(destination)
+    if source.resolve() != destination.resolve():
+        shutil.copytree(source, destination, dirs_exist_ok=True)
+
 # ANSI Colors
 GREEN = "\033[92m"
 YELLOW = "\033[93m"
@@ -103,6 +149,38 @@ def run_cmd(cmd, check=True, capture=False, env=None):
         capture_output=capture,
         env=full_env
     )
+
+def get_service_compose_dir(service: str) -> Path:
+    """Resolve a service Compose directory from the deployment .env or repository layout."""
+    if service not in {"openbao", "semaphore"}:
+        raise ValueError(f"Unknown or missing Compose service: {service}")
+    env_values = read_env_file(service=service)
+    configured_dir = env_values.get(f"{service.upper()}_COMPOSE_DIR")
+    compose_dir = Path(configured_dir).expanduser() if configured_dir else ROOT_DIR / service
+    if not compose_dir.is_absolute():
+        compose_dir = ROOT_DIR / compose_dir
+    return compose_dir.resolve()
+
+def compose_command(service: str, *arguments: str) -> str:
+    """Build a Compose command for one independently managed service."""
+    compose_dir = get_service_compose_dir(service)
+    compose_file = compose_dir / "compose.yml"
+    if not compose_file.exists():
+        raise ValueError(f"Unknown or missing Compose service: {compose_file}")
+
+    command = [
+        "docker", "compose",
+        "--project-directory", str(compose_dir),
+        "--env-file", str(get_service_env_file(service)),
+        "-f", str(compose_file),
+    ]
+    override_file = compose_dir / "compose.override.yml"
+    if not override_file.exists():
+        override_file = ROOT_DIR / f"{service}.compose.override.yml"
+    if override_file.exists():
+        command.extend(["-f", str(override_file)])
+    command.extend(arguments)
+    return shlex.join(command)
 
 def ensure_backend_network():
     """Ensures the external 'backend' Docker network exists."""
@@ -153,7 +231,10 @@ def run_preflight_checks(exit_on_failure=True):
 
     # 4. Filesystem Directory Writeability for Centralized DATA_DIR (/data)
     data_dir = get_configured_data_dir()
-    required_subs = ["postgres", "openbao", "semaphore", "boundary", "credentials"]
+    required_subs = [
+        "openbao/data", "openbao/config", "semaphore/data", "semaphore/work",
+        "semaphore/config", "network-backups", "credentials",
+    ]
     try:
         data_dir.mkdir(parents=True, exist_ok=True)
         for sub in required_subs:
@@ -176,23 +257,17 @@ def run_preflight_checks(exit_on_failure=True):
     # 6. Port Availability & Conflicts (if EXPOSE_PORTS is not false)
     expose_ports = os.getenv("EXPOSE_PORTS", "true").lower() != "false"
     if expose_ports:
-        ports_to_check = [
-            (8200, "OpenBao Web / API"),
-            (9200, "Boundary Controller API"),
-            (9201, "Boundary Controller Cluster"),
-            (9202, "Boundary Worker Proxy"),
-            (3000, "Semaphore Web UI"),
-        ]
-        running_containers_res = subprocess.run("docker compose ps -q", shell=True, capture_output=True, text=True, cwd=str(ROOT_DIR))
-        overseer_containers_running = bool(running_containers_res.stdout.strip())
-
+        ports_to_check = [(3000, "Semaphore Web UI")]
         for port, service_desc in ports_to_check:
+            service = "openbao" if port == 8200 else "semaphore"
+            running_containers_res = run_cmd(compose_command(service, "ps", "-q", service), check=False, capture=True)
+            service_running = bool(running_containers_res.stdout.strip())
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.settimeout(0.5)
             conn_res = sock.connect_ex(("127.0.0.1", port))
             sock.close()
             if conn_res == 0:
-                if overseer_containers_running:
+                if service_running:
                     checks.append(CheckResult("Port Status", f"Port {port} ({service_desc})", True, "In use (Overseer active)", ""))
                 else:
                     checks.append(CheckResult("Port Conflict", f"Port {port} ({service_desc})", False, "Already in use by foreign process", f"Stop conflicting service on port {port}"))
@@ -227,38 +302,56 @@ def run_preflight_checks(exit_on_failure=True):
 
 def ensure_env_file(interactive=False):
     """
-    Ensures .env exists from .env.example with newly generated secure random keys.
-    Also guarantees all KMS/encryption keys and passwords in .env are non-empty and securely generated.
+    Ensures service-specific environment files exist and generates Semaphore secrets.
     """
-    env_file = ROOT_DIR / ".env"
-    example = ROOT_DIR / ".env.example"
-    
+    env_files = {service: (get_service_env_file(service), ROOT_DIR / service / ".env.example") for service in SERVICE_ENV_KEYS}
+    legacy_values = read_env_file(path=ROOT_DIR / ".env")
+    for service, (env_file, example) in env_files.items():
+        env_file.parent.mkdir(parents=True, exist_ok=True)
+        if not env_file.exists() and example.exists():
+            shutil.copy2(example, env_file)
+            env_file.chmod(0o600)
+        current = read_env_file(path=env_file)
+        migrated = {
+            key: legacy_values[key] for key in SERVICE_ENV_KEYS[service]
+            if key in legacy_values and (key not in current or current[key] == "")
+        }
+        if migrated:
+            current.update(migrated)
+            write_service_env(env_file, example, current)
+        for key, value in current.items():
+            if key not in os.environ and value:
+                os.environ[key] = value
+
+    legacy_env_file = ROOT_DIR / ".env"
+    if legacy_env_file.exists():
+        archive = ROOT_DIR / ".env.legacy"
+        if archive.exists():
+            archive = ROOT_DIR / f".env.legacy-{int(time.time())}"
+        legacy_env_file.chmod(0o600)
+        legacy_env_file.replace(archive)
+
+    env_file = get_service_env_file("semaphore")
     if env_file.exists() and interactive and sys.stdin.isatty():
         print(f"\n{BOLD}{YELLOW}================================================================================{RESET}")
-        print(f"{BOLD}{YELLOW}               Existing .env File Detected                                      {RESET}")
+        print(f"{BOLD}{YELLOW}               Existing Semaphore .env Detected                                {RESET}")
         print(f"{BOLD}{YELLOW}================================================================================{RESET}\n")
-        print(f" An existing {BOLD}.env{RESET} file was found.")
-        print(f" Resetting will regenerate fresh random credentials from the latest {BOLD}.env.example{RESET} template.")
+        print(f" An existing {BOLD}semaphore/.env{RESET} file was found.")
+        print(" Resetting regenerates Semaphore credentials from its module template.")
         try:
-            choice = input("Reset and regenerate .env to latest template? [y/N]: ").strip().lower()
+            choice = input("Reset and regenerate Semaphore .env? [y/N]: ").strip().lower()
             if choice in ["y", "yes"]:
                 env_file.unlink()
-                print(f"{GREEN}[+] Removed existing .env file. Regenerating from .env.example...{RESET}")
+                shutil.copy2(env_files["semaphore"][1], env_file)
+                env_file.chmod(0o600)
+                print(f"{GREEN}[+] Regenerated Semaphore module .env.{RESET}")
         except (EOFError, KeyboardInterrupt):
             pass
 
-    if not env_file.exists() and example.exists():
-        print(f"{CYAN}[*] Generating fresh .env with unique cryptographic keys...{RESET}")
-        shutil.copy2(example, env_file)
-        
     if env_file.exists():
-        env_vars = read_env_file(include_comments=False)
+        env_vars = read_env_file(include_comments=False, service="semaphore")
         
-        # 1. Generate passwords if default or empty
-        if env_vars.get("BOUNDARY_DATABASE_PASSWORD") in [None, "", "boundarypassword"]:
-            set_env_var("BOUNDARY_DATABASE_PASSWORD", generate_random_password(18), uncomment=True)
-        if env_vars.get("SEMAPHORE_DATABASE_PASSWORD") in [None, "", "semaphorepassword"]:
-            set_env_var("SEMAPHORE_DATABASE_PASSWORD", generate_random_password(18), uncomment=True)
+        # 1. Generate the administrator password if default or empty
         if env_vars.get("SEMAPHORE_ADMIN_PASSWORD") in [None, "", "semaphoreadmin"]:
             set_env_var("SEMAPHORE_ADMIN_PASSWORD", generate_random_password(18), uncomment=True)
             
@@ -269,18 +362,12 @@ def ensure_env_file(interactive=False):
             "uK382WKGvgcuEmhdREQBPBG5nhAAda4e+bQQnFRinCU=",
             "GS3py5Y8+GvF12x0fTfR18k2h4eE9W2d1C8N6Q8T4=0",
         ]
-        if env_vars.get("BOUNDARY_KMS_AEAD_ROOT_KEY") in [None, ""] + dummy_keys:
-            set_env_var("BOUNDARY_KMS_AEAD_ROOT_KEY", generate_base64_key(32), uncomment=True)
-        if env_vars.get("BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY") in [None, ""] + dummy_keys:
-            set_env_var("BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY", generate_base64_key(32), uncomment=True)
-        if env_vars.get("BOUNDARY_KMS_AEAD_RECOVERY_KEY") in [None, ""] + dummy_keys:
-            set_env_var("BOUNDARY_KMS_AEAD_RECOVERY_KEY", generate_base64_key(32), uncomment=True)
         if env_vars.get("SEMAPHORE_ACCESS_KEY_ENCRYPTION") in [None, ""] + dummy_keys:
             set_env_var("SEMAPHORE_ACCESS_KEY_ENCRYPTION", generate_base64_key(32), uncomment=True)
             
         # Reload into os.environ only if not already present in environment
         # (Exclude mode selector flags so dynamic/interactive selection is respected)
-        control_flags = {"KEY_MANAGEMENT_PROFILE", "SEAL_TYPE", "OPENBAO_SHAMIR_MODE", "BOUNDARY_AEAD_MODE", "EXPOSE_PORTS"}
+        control_flags = {"KEY_MANAGEMENT_PROFILE", "SEAL_TYPE", "OPENBAO_SHAMIR_MODE", "EXPOSE_PORTS"}
         fresh_vars = read_env_file(include_comments=False)
         for k, v in fresh_vars.items():
             if k not in os.environ and k not in control_flags:
@@ -288,25 +375,26 @@ def ensure_env_file(interactive=False):
 
 def prompt_edit_env_file(interactive=True):
     """
-    Offers to open and edit .env with $EDITOR (default vim) right before starting containers.
+    Offers to review both module environment files with $EDITOR before starting containers.
     """
-    env_file = ROOT_DIR / ".env"
-    if interactive and sys.stdin.isatty() and env_file.exists():
+    if interactive and sys.stdin.isatty():
         editor = os.getenv("EDITOR", "vim")
         print(f"\n{BOLD}{CYAN}================================================================================{RESET}")
-        print(f"{BOLD}{CYAN}                    Final .env Review & Customization                           {RESET}")
+        print(f"{BOLD}{CYAN}             Final Service Environment Review & Customization                   {RESET}")
         print(f"{BOLD}{CYAN}================================================================================{RESET}\n")
-        print(f" All configuration and credentials have been written to {BOLD}.env{RESET}.")
+        print("Review the OpenBao and Semaphore module environment files.")
         try:
-            choice = input(f"Would you like to review and edit .env using '{editor}' before starting containers? [y/N]: ").strip().lower()
+            choice = input(f"Review both module environment files using '{editor}'? [y/N]: ").strip().lower()
             if choice in ["y", "yes"]:
-                print(f"{CYAN}[*] Opening .env with {editor}...{RESET}")
-                subprocess.run([editor, str(env_file)])
-                print(f"{GREEN}[+] Completed editing .env.{RESET}")
-                # Reload env vars to process environment in case of edits
-                env_vars = read_env_file()
-                for k, v in env_vars.items():
-                    os.environ[k] = v
+                for service in SERVICE_ENV_KEYS:
+                    env_file = get_service_env_file(service)
+                    if not env_file.exists():
+                        continue
+                    print(f"{CYAN}[*] Opening {service} environment: {env_file}{RESET}")
+                    subprocess.run([editor, str(env_file)])
+                    for key, value in read_env_file(service=service).items():
+                        os.environ[key] = value
+                print(f"{GREEN}[+] Completed reviewing module environment files.{RESET}")
         except (EOFError, KeyboardInterrupt):
             print()
 
@@ -322,9 +410,15 @@ def set_env_var(key: str, value: str = None, uncomment: bool = True):
     Sets a variable in .env, either uncommented (KEY=value) or commented (# KEY=value).
     If value is None, preserves the existing value in .env while updating comment status.
     """
-    env_file = ROOT_DIR / ".env"
+    service = next((name for name, keys in SERVICE_ENV_KEYS.items() if key in keys), "semaphore")
+    env_file = get_service_env_file(service)
+    env_file.parent.mkdir(parents=True, exist_ok=True)
     if not env_file.exists():
-        return
+        example = ROOT_DIR / service / ".env.example"
+        if not example.exists():
+            return
+        shutil.copy2(example, env_file)
+        env_file.chmod(0o600)
     lines = env_file.read_text(encoding="utf-8").splitlines()
     new_lines = []
     found = False
@@ -358,24 +452,45 @@ def set_env_var(key: str, value: str = None, uncomment: bool = True):
             os.environ[key] = str(value)
             
     env_file.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+    env_file.chmod(0o600)
+
+def render_semaphore_port_override() -> str:
+    """Return the optional host binding for Semaphore; OpenBao stays internal."""
+    return (
+        "# Auto-generated by Overseer Orchestrator for Semaphore host port exposure\n"
+        "services:\n  semaphore:\n    ports:\n"
+        '      - "${SEMAPHORE_PORT_BINDING:-0.0.0.0:3000:3000}"\n'
+    )
+
+def write_service_env(env_file: Path, template_file: Path, values: dict):
+    """Write service values over a tracked template while preserving its comments."""
+    lines = template_file.read_text(encoding="utf-8").splitlines() if template_file.exists() else []
+    written = set()
+    rendered = []
+    for line in lines:
+        stripped = line.strip().lstrip("#").strip()
+        key = stripped.split("=", 1)[0].strip() if "=" in stripped else None
+        if key in values:
+            rendered.append(f"{key}={values[key]}")
+            written.add(key)
+        else:
+            rendered.append(line)
+    missing = [(key, value) for key, value in values.items() if key not in written]
+    if missing:
+        rendered.extend(["", "# Preserved deployment settings"])
+        rendered.extend(f"{key}={value}" for key, value in missing)
+    env_file.parent.mkdir(parents=True, exist_ok=True)
+    env_file.write_text("\n".join(rendered) + "\n", encoding="utf-8")
+    env_file.chmod(0o600)
 
 def configure_port_binding(expose_ports=True):
     """
     Configures port binding in Docker Compose and .env.
-    - If expose_ports is True: writes compose.override.yml with port bindings referencing .env variables
-      and uncomments port binding variables in .env.
-    - If expose_ports is False: removes compose.override.yml so no ports are bound to the host
+    - If expose_ports is True: writes one service override per Compose project.
+    - If expose_ports is False: removes both service overrides so no host ports are bound
       (Internal only, backend network only) and comments out port binding variables in .env.
     """
-    override_file = ROOT_DIR / "compose.override.yml"
-    
-    ports_map = {
-        "OPENBAO_PORT_BINDING": "0.0.0.0:8200:8200",
-        "BOUNDARY_CONTROLLER_API_PORT": "0.0.0.0:9200:9200",
-        "BOUNDARY_CONTROLLER_CLUSTER_PORT": "0.0.0.0:9201:9201",
-        "BOUNDARY_WORKER_PROXY_PORT": "0.0.0.0:9202:9202",
-        "SEMAPHORE_PORT_BINDING": "0.0.0.0:3000:3000",
-    }
+    ports_map = {"SEMAPHORE_PORT_BINDING": "0.0.0.0:3000:3000"}
     
     set_env_var("EXPOSE_PORTS", "true" if expose_ports else "false", uncomment=True)
     
@@ -385,31 +500,20 @@ def configure_port_binding(expose_ports=True):
         set_env_var(k, val, uncomment=expose_ports)
 
     if expose_ports:
-        override_content = """# Auto-generated by Overseer Orchestrator for Host Port Exposure
-services:
-  openbao:
-    ports:
-      - "${OPENBAO_PORT_BINDING:-0.0.0.0:8200:8200}"
-
-  boundary-controller:
-    ports:
-      - "${BOUNDARY_CONTROLLER_API_PORT:-0.0.0.0:9200:9200}"
-      - "${BOUNDARY_CONTROLLER_CLUSTER_PORT:-0.0.0.0:9201:9201}"
-
-  boundary-worker:
-    ports:
-      - "${BOUNDARY_WORKER_PROXY_PORT:-0.0.0.0:9202:9202}"
-
-  semaphore:
-    ports:
-      - "${SEMAPHORE_PORT_BINDING:-0.0.0.0:3000:3000}"
-"""
-        override_file.write_text(override_content, encoding="utf-8")
-        print(f"{GREEN}[+] Generated compose.override.yml (Host port binding: 0.0.0.0:<port>:<port>){RESET}")
+        openbao_dir = get_service_compose_dir("openbao")
+        semaphore_dir = get_service_compose_dir("semaphore")
+        openbao_override = ROOT_DIR / "openbao.compose.override.yml" if openbao_dir != (ROOT_DIR / "openbao").resolve() else openbao_dir / "compose.override.yml"
+        semaphore_override = ROOT_DIR / "semaphore.compose.override.yml" if semaphore_dir != (ROOT_DIR / "semaphore").resolve() else semaphore_dir / "compose.override.yml"
+        if openbao_override.exists(): openbao_override.unlink()
+        semaphore_override.write_text(render_semaphore_port_override(), encoding="utf-8")
+        print(f"{GREEN}[+] Generated service Compose overrides for host port exposure{RESET}")
     else:
-        if override_file.exists():
-            override_file.unlink()
-            print(f"{YELLOW}[-] Removed compose.override.yml (Internal only, zero host port bindings){RESET}")
+        for service in ("openbao", "semaphore"):
+            local_override = ROOT_DIR / service / "compose.override.yml"
+            external_override = ROOT_DIR / f"{service}.compose.override.yml"
+            for override_file in (local_override, external_override):
+                if override_file.exists(): override_file.unlink()
+        print(f"{YELLOW}[-] Removed service Compose overrides (no host port bindings){RESET}")
 
 def ensure_runtime_keys_injected(interactive=True):
     """
@@ -423,9 +527,6 @@ def ensure_runtime_keys_injected(interactive=True):
 
     env_vars = read_env_file()
     required_keys = [
-        ("BOUNDARY_KMS_AEAD_ROOT_KEY", "Boundary KMS Root Key (32-byte Base64)"),
-        ("BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY", "Boundary KMS Worker Auth Key (32-byte Base64)"),
-        ("BOUNDARY_KMS_AEAD_RECOVERY_KEY", "Boundary KMS Recovery Key (32-byte Base64)"),
         ("SEMAPHORE_ACCESS_KEY_ENCRYPTION", "Semaphore Access Key Encryption (32-byte Base64)"),
     ]
 
@@ -476,13 +577,11 @@ def prompt_and_configure_all(interactive=True):
     seal_type = get_configured_seal_type()
     expose_ports = os.getenv("EXPOSE_PORTS", "true").lower() != "false"
     shamir_mode = os.getenv("OPENBAO_SHAMIR_MODE", "auto").lower()
-    aead_mode = os.getenv("BOUNDARY_AEAD_MODE", "auto").lower()
     
     # Unified profile detection
     if "SEAL_TYPE" in os.environ and os.environ["SEAL_TYPE"].strip().lower() == "gcpkms":
         profile = "gcpkms"
-    elif ("OPENBAO_SHAMIR_MODE" in os.environ and os.environ["OPENBAO_SHAMIR_MODE"].strip().lower() == "manual") or \
-         ("BOUNDARY_AEAD_MODE" in os.environ and os.environ["BOUNDARY_AEAD_MODE"].strip().lower() == "manual"):
+    elif "OPENBAO_SHAMIR_MODE" in os.environ and os.environ["OPENBAO_SHAMIR_MODE"].strip().lower() == "manual":
         profile = "manual"
     elif "KEY_MANAGEMENT_PROFILE" in os.environ and os.environ["KEY_MANAGEMENT_PROFILE"].strip():
         profile = os.environ["KEY_MANAGEMENT_PROFILE"].strip().lower()
@@ -494,7 +593,7 @@ def prompt_and_configure_all(interactive=True):
             profile = env_profile.strip().lower()
         elif seal_type == "gcpkms":
             profile = "gcpkms"
-        elif shamir_mode == "manual" or aead_mode == "manual":
+        elif shamir_mode == "manual":
             profile = "manual"
         else:
             profile = "local"
@@ -506,7 +605,7 @@ def prompt_and_configure_all(interactive=True):
         
         # 1. Port Exposure Question
         print(f"{BOLD}1. Host Port Exposure Mode:{RESET}")
-        print("   [1] Bind ports to Host (0.0.0.0: 8200, 9200, 9201, 9202, 3000) [Default]")
+        print("   [1] Bind ports to Host (0.0.0.0: 8200, 3000) [Default]")
         print("   [2] Internal Only (No host port binding, communication via 'backend' network)")
         try:
             port_choice = input("Select [1/2] (default 1): ").strip()
@@ -535,15 +634,12 @@ def prompt_and_configure_all(interactive=True):
     if profile == "gcpkms":
         seal_type = "gcpkms"
         shamir_mode = os.getenv("OPENBAO_SHAMIR_MODE", "auto")
-        aead_mode = os.getenv("BOUNDARY_AEAD_MODE", "auto")
     elif profile == "manual":
         seal_type = "local"
         shamir_mode = "manual"
-        aead_mode = "manual"
     else:
         seal_type = "local"
         shamir_mode = "auto"
-        aead_mode = "auto"
 
     # Apply Port Binding & .env comments
     configure_port_binding(expose_ports)
@@ -551,7 +647,6 @@ def prompt_and_configure_all(interactive=True):
     # Save modes to .env and os.environ
     set_env_var("SEAL_TYPE", seal_type, uncomment=True)
     set_env_var("OPENBAO_SHAMIR_MODE", shamir_mode, uncomment=True)
-    set_env_var("BOUNDARY_AEAD_MODE", aead_mode, uncomment=True)
     set_env_var("KEY_MANAGEMENT_PROFILE", profile, uncomment=True)
     
     # Handle GCP KMS variables comment/uncomment (preserve existing values if in .env)
@@ -560,9 +655,6 @@ def prompt_and_configure_all(interactive=True):
         ("GCP_REGION", "asia-northeast3"),
         ("GCP_KEY_RING", "overseer-keyring"),
         ("GCP_OPENBAO_KEY", "openbao-seal-key"),
-        ("GCP_BOUNDARY_ROOT_KEY", "boundary-root-key"),
-        ("GCP_BOUNDARY_WORKER_AUTH_KEY", "boundary-worker-auth-key"),
-        ("GCP_BOUNDARY_RECOVERY_KEY", "boundary-recovery-key"),
         ("GOOGLE_APPLICATION_CREDENTIALS", ""),
     ]
     is_gcp = (seal_type == "gcpkms")
@@ -584,41 +676,21 @@ def prompt_and_configure_all(interactive=True):
     # Inject OpenBao config
     openbao_profile = "gcp-kms.hcl" if seal_type == "gcpkms" else "local-shamir.hcl"
     openbao_src = ROOT_DIR / "openbao" / "config" / "profiles" / openbao_profile
-    openbao_dst = ROOT_DIR / "openbao" / "config" / "openbao.hcl"
+    configured_openbao_dir = env_vars.get("OPENBAO_CONFIG_DIR")
+    openbao_config_dir = Path(configured_openbao_dir).expanduser() if configured_openbao_dir else ROOT_DIR / "openbao" / "config"
+    if not openbao_config_dir.is_absolute():
+        openbao_config_dir = (ROOT_DIR / "openbao" / openbao_config_dir).resolve()
+    openbao_config_dir.mkdir(parents=True, exist_ok=True)
+    openbao_dst = openbao_config_dir / "openbao.hcl"
     if openbao_src.exists():
         content = openbao_src.read_text(encoding="utf-8")
         for k, v in os.environ.items():
             content = content.replace(f"${{{k}}}", v)
         openbao_dst.write_text(content, encoding="utf-8")
-        print(f"{GREEN}[+] Injected OpenBao profile: {openbao_profile} -> openbao/config/openbao.hcl{RESET}")
-
-    # Inject Boundary Controller config
-    bnd_ctrl_profile = "gcp-kms.hcl" if seal_type == "gcpkms" else "local-aead.hcl"
-    bnd_ctrl_src = ROOT_DIR / "boundary" / "config" / "profiles" / bnd_ctrl_profile
-    bnd_ctrl_dst = ROOT_DIR / "boundary" / "config" / "controller.hcl"
-    if bnd_ctrl_src.exists():
-        content = bnd_ctrl_src.read_text(encoding="utf-8")
-        for k, v in os.environ.items():
-            content = content.replace(f"${{{k}}}", v)
-        bnd_ctrl_dst.write_text(content, encoding="utf-8")
-        print(f"{GREEN}[+] Injected Boundary Controller profile: {bnd_ctrl_profile} -> boundary/config/controller.hcl{RESET}")
-
-    # Inject Boundary Worker config
-    bnd_worker_profile = "worker-gcp-kms.hcl" if seal_type == "gcpkms" else "worker-local-aead.hcl"
-    bnd_worker_src = ROOT_DIR / "boundary" / "config" / "profiles" / bnd_worker_profile
-    bnd_worker_dst = ROOT_DIR / "boundary" / "config" / "worker.hcl"
-    if bnd_worker_src.exists():
-        content = bnd_worker_src.read_text(encoding="utf-8")
-        for k, v in os.environ.items():
-            content = content.replace(f"${{{k}}}", v)
-        bnd_worker_dst.write_text(content, encoding="utf-8")
-        print(f"{GREEN}[+] Injected Boundary Worker profile: {bnd_worker_profile} -> boundary/config/worker.hcl{RESET}")
+    print(f"{GREEN}[+] Injected OpenBao profile: {openbao_profile} -> {openbao_dst}{RESET}")
 
     # If Manual Mode is chosen: Display keys securely and completely wipe from .env
     if profile == "manual":
-        root_k = os.getenv("BOUNDARY_KMS_AEAD_ROOT_KEY") or env_vars.get("BOUNDARY_KMS_AEAD_ROOT_KEY") or generate_base64_key(32)
-        worker_k = os.getenv("BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY") or env_vars.get("BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY") or generate_base64_key(32)
-        recovery_k = os.getenv("BOUNDARY_KMS_AEAD_RECOVERY_KEY") or env_vars.get("BOUNDARY_KMS_AEAD_RECOVERY_KEY") or generate_base64_key(32)
         sem_k = os.getenv("SEMAPHORE_ACCESS_KEY_ENCRYPTION") or env_vars.get("SEMAPHORE_ACCESS_KEY_ENCRYPTION") or generate_base64_key(32)
 
         print(f"\n{BOLD}{YELLOW}================================================================================{RESET}")
@@ -626,112 +698,81 @@ def prompt_and_configure_all(interactive=True):
         print(f"{BOLD}{YELLOW} Please securely copy and store the master encryption keys below.               {RESET}")
         print(f"{BOLD}{YELLOW} These keys will now be COMPLETELY WIPED from .env and disk!                    {RESET}")
         print(f"--------------------------------------------------------------------------------")
-        print(f" BOUNDARY_KMS_AEAD_ROOT_KEY        : {root_k}")
-        print(f" BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY : {worker_k}")
-        print(f" BOUNDARY_KMS_AEAD_RECOVERY_KEY    : {recovery_k}")
         print(f" SEMAPHORE_ACCESS_KEY_ENCRYPTION   : {sem_k}")
         print(f"--------------------------------------------------------------------------------")
         print(f" (To restart containers later, export them in shell or enter interactively on make up)")
         print(f"================================================================================\n")
 
         # Keep values in os.environ for current running process
-        os.environ["BOUNDARY_KMS_AEAD_ROOT_KEY"] = root_k
-        os.environ["BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY"] = worker_k
-        os.environ["BOUNDARY_KMS_AEAD_RECOVERY_KEY"] = recovery_k
         os.environ["SEMAPHORE_ACCESS_KEY_ENCRYPTION"] = sem_k
 
         # Wipe keys from .env file on disk
-        set_env_var("BOUNDARY_KMS_AEAD_ROOT_KEY", "", uncomment=True)
-        set_env_var("BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY", "", uncomment=True)
-        set_env_var("BOUNDARY_KMS_AEAD_RECOVERY_KEY", "", uncomment=True)
         set_env_var("SEMAPHORE_ACCESS_KEY_ENCRYPTION", "", uncomment=True)
 
     return {
         "seal_type": seal_type,
         "expose_ports": expose_ports,
         "shamir_mode": shamir_mode,
-        "aead_mode": aead_mode,
         "key_management_profile": profile
     }
-
-def check_postgres_ready(timeout=30):
-    """Waits for PostgreSQL to accept connections."""
-    print(f"{CYAN}[*] Waiting for PostgreSQL backend (service postgres)...{RESET}")
-    env_vars = read_env_file()
-    bnd_user = env_vars.get("BOUNDARY_DATABASE_USER", "boundary")
-    start = time.time()
-    while time.time() - start < timeout:
-        res = run_cmd(f"docker compose exec -T postgres pg_isready -U {bnd_user}", check=False, capture=True)
-        if res.returncode == 0:
-            print(f"{GREEN}[+] PostgreSQL is ready.{RESET}")
-            return True
-        time.sleep(1.5)
-    print(f"{RED}[-] PostgreSQL timed out after {timeout}s.{RESET}")
-    return False
-
-def ensure_postgres_databases():
-    """Ensures dedicated 'boundary' and 'semaphore' users and databases exist with strict least-privilege isolation."""
-    print(f"{CYAN}[*] Configuring separated PostgreSQL users and databases...{RESET}")
-    env_vars = read_env_file()
-    bnd_user = env_vars.get("BOUNDARY_DATABASE_USER", "boundary")
-    bnd_pass = env_vars.get("BOUNDARY_DATABASE_PASSWORD", "boundarypassword")
-    bnd_db = env_vars.get("BOUNDARY_DATABASE", "boundary")
-    
-    sem_user = env_vars.get("SEMAPHORE_DATABASE_USER", "semaphore")
-    sem_pass = env_vars.get("SEMAPHORE_DATABASE_PASSWORD", "semaphorepassword")
-    sem_db = env_vars.get("SEMAPHORE_DATABASE", "semaphore")
-
-    # 1. Ensure Semaphore user exists
-    check_user = run_cmd(f"docker compose exec -T postgres psql -U {bnd_user} -d {bnd_db} -tc \"SELECT 1 FROM pg_roles WHERE rolname = '{sem_user}'\"", check=False, capture=True)
-    if "1" not in check_user.stdout:
-        print(f"{CYAN}[*] Creating dedicated PostgreSQL user '{sem_user}'...{RESET}")
-        run_cmd(f"docker compose exec -T postgres psql -U {bnd_user} -d {bnd_db} -c \"CREATE USER {sem_user} WITH PASSWORD '{sem_pass}';\"", check=False)
-    else:
-        # Update password if changed
-        run_cmd(f"docker compose exec -T postgres psql -U {bnd_user} -d {bnd_db} -c \"ALTER USER {sem_user} WITH PASSWORD '{sem_pass}';\"", check=False)
-
-    # 2. Ensure Semaphore database exists and is owned by semaphore user
-    check_db = run_cmd(f"docker compose exec -T postgres psql -U {bnd_user} -d {bnd_db} -tc \"SELECT 1 FROM pg_database WHERE datname = '{sem_db}'\"", check=False, capture=True)
-    if "1" not in check_db.stdout:
-        print(f"{CYAN}[*] Creating dedicated PostgreSQL database '{sem_db}' owned by '{sem_user}'...{RESET}")
-        run_cmd(f"docker compose exec -T postgres psql -U {bnd_user} -d {bnd_db} -c \"CREATE DATABASE {sem_db} OWNER {sem_user};\"", check=False)
-        run_cmd(f"docker compose exec -T postgres psql -U {bnd_user} -d {bnd_db} -c \"GRANT ALL PRIVILEGES ON DATABASE {sem_db} TO {sem_user};\"", check=False)
-        print(f"{GREEN}[+] Created database '{sem_db}' with isolated owner '{sem_user}'.{RESET}")
-    else:
-        run_cmd(f"docker compose exec -T postgres psql -U {bnd_user} -d {bnd_db} -c \"GRANT ALL PRIVILEGES ON DATABASE {sem_db} TO {sem_user};\"", check=False)
-        print(f"{GREEN}[+] Database '{sem_db}' ready.{RESET}")
 
 def wait_for_container_running(service_name: str, timeout: int = 20) -> bool:
     """Waits until a Docker Compose service reaches 'running' state."""
     start = time.time()
     while time.time() - start < timeout:
-        res = run_cmd(f"docker compose ps --format '{{{{.State}}}}' {service_name}", check=False, capture=True)
+        res = run_cmd(compose_command(service_name, "ps", "--format", "{{.State}}", service_name), check=False, capture=True)
         state = res.stdout.strip().lower()
         if "running" in state:
             return True
         time.sleep(1)
     return False
 
-def init_boundary():
-    """Initializes Boundary Database schema."""
-    ensure_runtime_keys_injected(interactive=True)
-    print(f"{CYAN}[*] Initializing Boundary Database Schema...{RESET}")
-    run_cmd("docker compose run --rm --entrypoint /bin/sh boundary-controller -c '/boundary/scripts/init-boundary.sh'", check=False)
-    print(f"{GREEN}[+] Boundary schema initialized.{RESET}")
-
 def init_openbao():
     """Initializes and unseals OpenBao, setting up SSH CA."""
     print(f"{CYAN}[*] Initializing and unsealing OpenBao & SSH CA...{RESET}")
-    run_cmd("docker compose up -d openbao", check=True)
+    run_cmd(compose_command("openbao", "up", "-d", "openbao"), check=True)
     wait_for_container_running("openbao", timeout=15)
     time.sleep(2)
-    shamir_mode = os.getenv("OPENBAO_SHAMIR_MODE", "auto")
-    unseal_key = os.getenv("OPENBAO_UNSEAL_KEY", "")
-    unseal_env = f"-e PROVIDED_UNSEAL_KEY={unseal_key}" if unseal_key else ""
+    shamir_mode = os.getenv("OPENBAO_SHAMIR_MODE") or read_env_file().get("OPENBAO_SHAMIR_MODE", "auto")
+    status_res = run_cmd(
+        compose_command("openbao", "exec", "-T", "openbao", "bao", "status", "-format=json"),
+        check=False,
+        capture=True,
+    )
+    try:
+        bao_status = json.loads(status_res.stdout)
+    except (json.JSONDecodeError, TypeError):
+        raise RuntimeError("Could not read OpenBao status safely; refusing to run initialization.")
+
+    if "initialized" not in bao_status or "sealed" not in bao_status:
+        raise RuntimeError("OpenBao status is incomplete; refusing to run initialization.")
+
+    if bao_status.get("initialized") and not bao_status.get("sealed"):
+        print(f"{GREEN}[+] OpenBao is already initialized and unsealed; skipping initialization.{RESET}")
+        return
+
+    if bao_status.get("initialized") and bao_status.get("sealed") and shamir_mode == "manual":
+        if not sys.stdin.isatty():
+            raise RuntimeError("OpenBao is sealed in manual mode; run this command interactively to enter the unseal key.")
+        print(f"{YELLOW}[!] Enter the manual unseal key in OpenBao's hidden prompt.{RESET}")
+        run_cmd(compose_command("openbao", "exec", "-it", "openbao", "bao", "operator", "unseal"), check=True)
+        verify_res = run_cmd(
+            compose_command("openbao", "exec", "-T", "openbao", "bao", "status", "-format=json"),
+            check=False,
+            capture=True,
+        )
+        try:
+            verified_status = json.loads(verify_res.stdout)
+        except (json.JSONDecodeError, TypeError):
+            raise RuntimeError("Could not verify OpenBao unseal status.")
+        if not verified_status.get("initialized") or verified_status.get("sealed"):
+            raise RuntimeError("OpenBao remains sealed after the manual unseal attempt.")
+        print(f"{GREEN}[+] OpenBao unsealed successfully; existing SSH CA configuration is retained.{RESET}")
+        return
     
     max_retries = 3
     for attempt in range(1, max_retries + 1):
-        res = run_cmd(f"docker compose exec -T -u 0:0 -e OPENBAO_SHAMIR_MODE={shamir_mode} {unseal_env} openbao /bin/sh /openbao/scripts/init-openbao-ssh-ca.sh", check=False)
+        res = run_cmd(compose_command("openbao", "exec", "-T", "-u", "0:0", "-e", f"OPENBAO_SHAMIR_MODE={shamir_mode}", "openbao", "/bin/sh", "/openbao/scripts/init-openbao-ssh-ca.sh"), check=False)
         if res.returncode == 0:
             print(f"{GREEN}[+] OpenBao SSH CA setup finished.{RESET}")
             return
@@ -745,14 +786,16 @@ def init_semaphore():
     if init_script.exists():
         run_cmd(str(init_script), check=False)
 
-def deploy_to_target(source_dir: Path, target_dir: Path, execute_bootstrap: bool = True):
+def deploy_to_target(source_dir: Path, target_dir: Path, services_root: Optional[Path] = None, data_root: Optional[Path] = None):
     """
     Copies only production-critical operational files to the target deployment directory,
     excluding tests, docs, git repository, test artifacts, and caches.
-    Ensures safe permissions and transitions execution to the target directory.
+    Preserves target environment state and does not start production services.
     """
     source_dir = Path(source_dir).resolve()
     target_dir = Path(target_dir).resolve()
+    services_root = Path(services_root).resolve() if services_root else target_dir
+    data_root = Path(data_root).resolve() if data_root else target_dir / "data"
     
     print(f"\n{BOLD}{CYAN}================================================================================{RESET}")
     print(f"{BOLD}{CYAN}      Deploying Overseer Operational Files to Target Location                   {RESET}")
@@ -763,109 +806,141 @@ def deploy_to_target(source_dir: Path, target_dir: Path, execute_bootstrap: bool
     target_dir.mkdir(parents=True, exist_ok=True)
 
     # 1. Top-level essential operational files
-    top_files = ["compose.yml", "Makefile", "README.md", "CONTEXT.md", ".env.example"]
-    if (source_dir / ".env").exists():
-        top_files.append(".env")
-    if (source_dir / "compose.override.yml").exists():
-        top_files.append("compose.override.yml")
-    elif (target_dir / "compose.override.yml").exists():
-        (target_dir / "compose.override.yml").unlink()
+    top_files = ["Makefile", "README.md", "CONTEXT.md"]
 
     for tf in top_files:
         src_f = source_dir / tf
         dst_f = target_dir / tf
         if src_f.exists():
-            shutil.copy2(src_f, dst_f)
+            copy2_unless_same(src_f, dst_f)
             print(f"{GREEN}[+] Copied: {tf}{RESET}")
 
-    # 2. OpenBao configuration & scripts
-    (target_dir / "openbao" / "config").mkdir(parents=True, exist_ok=True)
+    # Remove obsolete combined Compose entrypoints without touching service data.
+    for obsolete_file in ("compose.yml", "compose.override.yml"):
+        stale_compose = target_dir / obsolete_file
+        if stale_compose.exists():
+            stale_compose.unlink()
+            print(f"{YELLOW}[-] Removed obsolete {obsolete_file}{RESET}")
+
+    legacy_env_path = target_dir / ".env"
+    legacy_env = read_env_file(path=legacy_env_path) if legacy_env_path.exists() else {}
+    module_env_values = {}
+    for service in SERVICE_ENV_KEYS:
+        module_path = data_root / service / "config" / ".env"
+        existing = read_env_file(path=module_path) if module_path.exists() else {}
+        module_env_values[service] = {
+            key: legacy_env[key] for key in SERVICE_ENV_KEYS[service] if key in legacy_env
+        }
+        module_env_values[service].update({
+            key: value for key, value in existing.items()
+            if key in SERVICE_ENV_KEYS[service] and (value != "" or key not in module_env_values[service])
+        })
+    common_defaults = {
+        "DATA_DIR": str(data_root),
+        "CURRENT_UID": str(os.getuid()) if hasattr(os, "getuid") else "1000",
+        "CURRENT_GID": str(os.getgid()) if hasattr(os, "getgid") else "1000",
+    }
+    module_env_values["openbao"].update({
+        **common_defaults,
+        "OPENBAO_COMPOSE_DIR": str(services_root / "openbao"),
+        "OPENBAO_CONFIG_DIR": str(data_root / "openbao" / "config"),
+        "OPENBAO_SCRIPTS_DIR": str(target_dir / "openbao" / "scripts"),
+    })
+    module_env_values["semaphore"].update({
+        **common_defaults,
+        "SEMAPHORE_COMPOSE_DIR": str(services_root / "semaphore"),
+        "SEMAPHORE_CONFIG_DIR": str(data_root / "semaphore" / "config"),
+    })
+
+    semaphore_override = target_dir / "semaphore.compose.override.yml"
+    if module_env_values["semaphore"].get("EXPOSE_PORTS", "false").lower() == "true":
+        semaphore_override.write_text(render_semaphore_port_override(), encoding="utf-8")
+    elif semaphore_override.exists():
+        semaphore_override.unlink()
+
+    # Each service directory in the production layout contains only compose.yml.
+    for service in ("openbao", "semaphore"):
+        service_example = source_dir / service / ".env.example"
+        if service_example.exists():
+            example_target = target_dir / service / ".env.example"
+            example_target.parent.mkdir(parents=True, exist_ok=True)
+            copy2_unless_same(service_example, example_target)
+        service_dir = services_root / service
+        service_dir.mkdir(parents=True, exist_ok=True)
+        compose_src = source_dir / service / "compose.yml"
+        if not compose_src.exists():
+            raise FileNotFoundError(f"Missing service Compose file: {compose_src}")
+        compose_dst = service_dir / "compose.yml"
+        copy2_unless_same(compose_src, compose_dst)
+        for child in service_dir.iterdir():
+            if child.name == "compose.yml":
+                continue
+            if child.is_dir() and not child.is_symlink():
+                shutil.rmtree(child)
+            else:
+                child.unlink()
+
+    # 2. Persist service settings under /data, outside the service Compose folders.
+    openbao_config_dir = Path(module_env_values["openbao"]["OPENBAO_CONFIG_DIR"])
+    semaphore_config_dir = Path(module_env_values["semaphore"]["SEMAPHORE_CONFIG_DIR"])
+    if not openbao_config_dir.is_absolute():
+        openbao_config_dir = (services_root / "openbao" / openbao_config_dir).resolve()
+    if not semaphore_config_dir.is_absolute():
+        semaphore_config_dir = (services_root / "semaphore" / semaphore_config_dir).resolve()
+    openbao_config_dir.mkdir(parents=True, exist_ok=True)
+    semaphore_config_dir.mkdir(parents=True, exist_ok=True)
+
+    for service, config_dir in (("openbao", openbao_config_dir), ("semaphore", semaphore_config_dir)):
+        module_path = config_dir / ".env"
+        write_service_env(module_path, source_dir / service / ".env.example", module_env_values[service])
+    if legacy_env_path.exists():
+        legacy_backup = target_dir / ".env.legacy"
+        if not legacy_backup.exists():
+            shutil.copy2(legacy_env_path, legacy_backup)
+            legacy_backup.chmod(0o600)
+        legacy_env_path.unlink()
+
     (target_dir / "openbao" / "scripts").mkdir(parents=True, exist_ok=True)
-    
     openbao_profiles_src = source_dir / "openbao" / "config" / "profiles"
     if openbao_profiles_src.exists():
-        shutil.copytree(openbao_profiles_src, target_dir / "openbao" / "config" / "profiles", dirs_exist_ok=True)
-    if (source_dir / "openbao" / "config" / "openbao.hcl").exists():
-        shutil.copy2(source_dir / "openbao" / "config" / "openbao.hcl", target_dir / "openbao" / "config" / "openbao.hcl")
+        copytree_unless_same(openbao_profiles_src, openbao_config_dir / "profiles")
+        copytree_unless_same(openbao_profiles_src, target_dir / "openbao" / "config" / "profiles")
+    openbao_hcl_src = source_dir / "openbao" / "config" / "openbao.hcl"
+    if openbao_hcl_src.exists() and not (openbao_config_dir / "openbao.hcl").exists():
+        shutil.copy2(openbao_hcl_src, openbao_config_dir / "openbao.hcl")
+    policies_src = source_dir / "openbao" / "policies"
+    if policies_src.exists():
+        shutil.copytree(policies_src, openbao_config_dir / "policies", dirs_exist_ok=True)
+    requirements_src = source_dir / "semaphore" / "requirements.txt"
+    if requirements_src.exists():
+        shutil.copy2(requirements_src, semaphore_config_dir / "requirements.txt")
     if (source_dir / "openbao" / "scripts" / "init-openbao-ssh-ca.sh").exists():
-        shutil.copy2(source_dir / "openbao" / "scripts" / "init-openbao-ssh-ca.sh", target_dir / "openbao" / "scripts" / "init-openbao-ssh-ca.sh")
+        copy2_unless_same(source_dir / "openbao" / "scripts" / "init-openbao-ssh-ca.sh", target_dir / "openbao" / "scripts" / "init-openbao-ssh-ca.sh")
         (target_dir / "openbao" / "scripts" / "init-openbao-ssh-ca.sh").chmod(0o755)
-
-    # 3. Boundary configuration & scripts
-    (target_dir / "boundary" / "config").mkdir(parents=True, exist_ok=True)
-    (target_dir / "boundary" / "scripts").mkdir(parents=True, exist_ok=True)
-    
-    boundary_profiles_src = source_dir / "boundary" / "config" / "profiles"
-    if boundary_profiles_src.exists():
-        shutil.copytree(boundary_profiles_src, target_dir / "boundary" / "config" / "profiles", dirs_exist_ok=True)
-    if (source_dir / "boundary" / "config" / "controller.hcl").exists():
-        shutil.copy2(source_dir / "boundary" / "config" / "controller.hcl", target_dir / "boundary" / "config" / "controller.hcl")
-    if (source_dir / "boundary" / "config" / "worker.hcl").exists():
-        shutil.copy2(source_dir / "boundary" / "config" / "worker.hcl", target_dir / "boundary" / "config" / "worker.hcl")
-    if (source_dir / "boundary" / "scripts" / "init-boundary.sh").exists():
-        shutil.copy2(source_dir / "boundary" / "scripts" / "init-boundary.sh", target_dir / "boundary" / "scripts" / "init-boundary.sh")
-        (target_dir / "boundary" / "scripts" / "init-boundary.sh").chmod(0o755)
 
     # 4. Operational Scripts
     (target_dir / "scripts").mkdir(parents=True, exist_ok=True)
-    for sc in ["orchestrator.py", "init-semaphore.sh", "healthcheck.sh"]:
+    for sc in ["orchestrator.py", "init-semaphore.sh", "healthcheck.sh", "migrate-semaphore-postgres-to-sqlite.py"]:
         src_sc = source_dir / "scripts" / sc
         dst_sc = target_dir / "scripts" / sc
         if src_sc.exists():
-            shutil.copy2(src_sc, dst_sc)
+            copy2_unless_same(src_sc, dst_sc)
             dst_sc.chmod(0o755)
             print(f"{GREEN}[+] Copied script: scripts/{sc}{RESET}")
 
-    print(f"\n{BOLD}{GREEN}[+] Production operational files successfully deployed to {target_dir}!{RESET}\n")
+    migration_guide = source_dir / "docs" / "control-plane" / "semaphore-postgres-to-sqlite.md"
+    if migration_guide.exists():
+        guide_target = target_dir / "docs" / "control-plane" / migration_guide.name
+        guide_target.parent.mkdir(parents=True, exist_ok=True)
+        copy2_unless_same(migration_guide, guide_target)
+        print(f"{GREEN}[+] Copied operational guide: docs/control-plane/{migration_guide.name}{RESET}")
 
-    if execute_bootstrap:
-        print(f"{CYAN}[*] Executing full-stack bootstrap inside target directory: {target_dir}...{RESET}\n")
-        env = os.environ.copy()
-        res = subprocess.run(
-            ["python3", str(target_dir / "scripts" / "orchestrator.py"), "bootstrap", "--target-dir", str(target_dir)],
-            cwd=str(target_dir),
-            env=env
-        )
-        sys.exit(res.returncode)
+    print(f"\n{BOLD}{GREEN}[+] Production operational files successfully deployed to {target_dir}!{RESET}\n")
 
     return True
 
-def prompt_target_directory(interactive=True, default_target="/opt/services/overseer"):
-    """Prompts for target production directory or uses default / env var."""
-    if os.getenv("OVERSEER_TARGET_DIR"):
-        return Path(os.getenv("OVERSEER_TARGET_DIR")).resolve()
-    if not interactive or not sys.stdin.isatty():
-        return Path(default_target).resolve()
-    
-    print(f"\n{BOLD}{CYAN}================================================================================{RESET}")
-    print(f"{BOLD}{CYAN}           Overseer Production Installation Directory Selection                 {RESET}")
-    print(f"{BOLD}{CYAN}================================================================================{RESET}\n")
-    print(f" Overseer will copy production-critical files (excluding tests/docs/git) to this directory.")
-    print(f" Default installation target: {BOLD}{default_target}{RESET}\n")
-    try:
-        user_input = input(f"Enter target path (Press Enter for '{default_target}'): ").strip()
-        chosen = user_input if user_input else default_target
-        return Path(chosen).resolve()
-    except (EOFError, KeyboardInterrupt):
-        return Path(default_target).resolve()
-
-def bootstrap(target_dir_param=None):
+def bootstrap():
     """Full end-to-end bootstrap of all Control Plane services."""
-    current_root = ROOT_DIR.resolve()
-    
-    # 0. Check if we should deploy to a target production directory
-    target_dir = None
-    if target_dir_param:
-        target_dir = Path(target_dir_param).resolve()
-    elif os.getenv("OVERSEER_TARGET_DIR"):
-        target_dir = Path(os.getenv("OVERSEER_TARGET_DIR")).resolve()
-    elif (current_root / ".git").exists() or (current_root / "tests").exists():
-        # Running from source/git repository: prompt or default to /opt/services/overseer
-        target_dir = prompt_target_directory(interactive=True, default_target="/opt/services/overseer")
-
-    if target_dir and target_dir != current_root:
-        deploy_to_target(source_dir=current_root, target_dir=target_dir, execute_bootstrap=True)
-        return
 
     # 0. Pre-Flight Prerequisites Validation (including backend network)
     run_preflight_checks(exit_on_failure=True)
@@ -880,19 +955,12 @@ def bootstrap(target_dir_param=None):
     # 0.2 Final Review & Customization in $EDITOR (vim) before starting containers
     prompt_edit_env_file(interactive=True)
     
-    # 1. Start Postgres & Wait
-    run_cmd("docker compose up -d postgres", check=True)
-    if not check_postgres_ready():
-        sys.exit(1)
-    ensure_postgres_databases()
-    
-    # 2. Init Boundary & OpenBao
-    init_boundary()
+    # 1. Initialize OpenBao
     init_openbao()
     
-    # 3. Start remaining services (Boundary & Semaphore)
-    print(f"{CYAN}[*] Starting Boundary Controller, Worker & Semaphore UI...{RESET}")
-    run_cmd("docker compose up -d boundary-controller boundary-worker semaphore", check=True)
+    # 2. Start Semaphore using its own Compose project; OpenBao was started above.
+    print(f"{CYAN}[*] Starting Semaphore UI...{RESET}")
+    run_cmd(compose_command("semaphore", "up", "-d", "semaphore"), check=True)
     
     # 4. Seed Semaphore
     init_semaphore()
@@ -900,22 +968,15 @@ def bootstrap(target_dir_param=None):
     print(f"\n{BOLD}{GREEN}================================================================================{RESET}")
     print(f"{BOLD}{GREEN}  Overseer Control Plane is UP and READY!                                      {RESET}")
     print(f"{BOLD}{GREEN}  - OpenBao Web UI:     http://localhost:8200                                   {RESET}")
-    print(f"{BOLD}{GREEN}  - Boundary Admin UI:  http://localhost:9200                                   {RESET}")
     print(f"{BOLD}{GREEN}  - Semaphore Web UI:   http://localhost:3000                                   {RESET}")
     print(f"{BOLD}{GREEN}================================================================================{RESET}\n")
 
 def check_service_status():
     """Detailed health check and status reporting across all control plane services."""
     print(f"\n{BOLD}Checking Overseer Control Plane Services Health...{RESET}\n")
-    env_vars = read_env_file()
-    bnd_user = env_vars.get("BOUNDARY_DATABASE_USER", "boundary")
-    
     services = [
-        ("1. PostgreSQL (5432)", f"docker compose exec -T postgres pg_isready -U {bnd_user}", "tcp"),
-        ("2. OpenBao API (8200)", "docker compose exec -T openbao bao status -address=http://127.0.0.1:8200", "cli"),
-        ("3. Boundary Controller (9200)", "curl -s http://127.0.0.1:9200/v1/health || docker compose exec -T boundary-controller /bin/sh -c 'curl -s http://127.0.0.1:9200/v1/health'", "http"),
-        ("4. Boundary Worker (9202)", "nc -z 127.0.0.1 9202 || docker compose exec -T boundary-worker /bin/sh -c 'nc -z 127.0.0.1 9202'", "tcp"),
-        ("5. Semaphore UI (3000)", "curl -s http://127.0.0.1:3000/api/ping || docker compose exec -T semaphore /bin/sh -c 'nc -z 127.0.0.1 3000'", "http"),
+        ("1. OpenBao API (8200)", compose_command("openbao", "exec", "-T", "openbao", "bao", "status", "-address=http://127.0.0.1:8200"), "cli"),
+        ("2. Semaphore UI (3000)", "curl -s http://127.0.0.1:3000/api/ping || " + compose_command("semaphore", "exec", "-T", "semaphore", "/bin/sh", "-c", "nc -z 127.0.0.1 3000"), "http"),
     ]
     
     all_healthy = True
@@ -932,17 +993,39 @@ def check_service_status():
     print()
     return 0 if all_healthy else 1
 
+def follow_service_logs():
+    """Follow both service logs without combining their Compose project files."""
+    processes = [
+        subprocess.Popen(shlex.split(compose_command(service, "logs", "-f", service)), cwd=str(ROOT_DIR))
+        for service in ("openbao", "semaphore")
+    ]
+    try:
+        while any(process.poll() is None for process in processes):
+            time.sleep(0.5)
+    except KeyboardInterrupt:
+        for process in processes:
+            if process.poll() is None:
+                process.terminate()
+    finally:
+        for process in processes:
+            if process.poll() is None:
+                process.wait()
+
 def main():
     parser = argparse.ArgumentParser(description="Overseer Control Plane Lifecycle Orchestrator")
-    parser.add_argument("action", choices=["bootstrap", "up", "preflight", "status", "down", "init-postgres", "init-openbao", "init-boundary", "init-semaphore", "configure-seal", "deploy-target"], help="Action to perform")
+    parser.add_argument("action", choices=["bootstrap", "up", "preflight", "status", "down", "init-openbao", "init-semaphore", "start-semaphore", "stop-openbao", "stop-semaphore", "restart-openbao", "restart-semaphore", "logs", "logs-openbao", "logs-semaphore", "configure-seal", "deploy-target"], help="Action to perform")
     parser.add_argument("--target-dir", default=None, help="Target production installation directory (default: /opt/services/overseer)")
+    parser.add_argument("--services-root", default="/opt/services", help="Directory containing the per-service Compose folders")
+    parser.add_argument("--data-root", default="/data", help="Persistent service data and configuration root")
     parser.add_argument("--seal-type", choices=["local", "gcpkms"], default=None, help="Force specific seal backend")
     parser.add_argument("--expose-ports", choices=["true", "false"], default=None, help="Expose ports to host")
     parser.add_argument("--shamir-mode", choices=["auto", "manual"], default=None, help="OpenBao shamir unseal mode")
-    parser.add_argument("--aead-mode", choices=["auto", "manual"], default=None, help="Boundary AEAD mode")
     
     args = parser.parse_args()
     
+    if args.action in ["bootstrap", "up"] and args.target_dir:
+        parser.error("bootstrap only starts services from the current directory; use production-sync to copy files")
+
     if args.target_dir:
         os.environ["OVERSEER_TARGET_DIR"] = args.target_dir
     if args.seal_type:
@@ -951,14 +1034,12 @@ def main():
         os.environ["EXPOSE_PORTS"] = args.expose_ports
     if args.shamir_mode:
         os.environ["OPENBAO_SHAMIR_MODE"] = args.shamir_mode
-    if args.aead_mode:
-        os.environ["BOUNDARY_AEAD_MODE"] = args.aead_mode
 
     if args.action in ["bootstrap", "up"]:
-        bootstrap(target_dir_param=args.target_dir)
+        bootstrap()
     elif args.action == "deploy-target":
         target = Path(args.target_dir if args.target_dir else "/opt/services/overseer").resolve()
-        deploy_to_target(source_dir=ROOT_DIR, target_dir=target, execute_bootstrap=False)
+        deploy_to_target(source_dir=ROOT_DIR, target_dir=target, services_root=Path(args.services_root), data_root=Path(args.data_root))
     elif args.action == "preflight":
         passed = run_preflight_checks(exit_on_failure=False)
         sys.exit(0 if passed else 1)
@@ -967,15 +1048,29 @@ def main():
     elif args.action == "status":
         sys.exit(check_service_status())
     elif args.action == "down":
-        run_cmd("docker compose down", check=True)
-    elif args.action == "init-postgres":
-        ensure_postgres_databases()
+        for service in ("semaphore", "openbao"):
+            run_cmd(compose_command(service, "stop", service), check=True)
+            run_cmd(compose_command(service, "rm", "-f", service), check=True)
     elif args.action == "init-openbao":
         init_openbao()
-    elif args.action == "init-boundary":
-        init_boundary()
     elif args.action == "init-semaphore":
         init_semaphore()
+    elif args.action == "start-semaphore":
+        run_cmd(compose_command("semaphore", "up", "-d", "semaphore"), check=True)
+    elif args.action == "stop-openbao":
+        run_cmd(compose_command("openbao", "stop", "openbao"), check=True)
+    elif args.action == "stop-semaphore":
+        run_cmd(compose_command("semaphore", "stop", "semaphore"), check=True)
+    elif args.action == "restart-openbao":
+        run_cmd(compose_command("openbao", "restart", "openbao"), check=True)
+    elif args.action == "restart-semaphore":
+        run_cmd(compose_command("semaphore", "restart", "semaphore"), check=True)
+    elif args.action == "logs":
+        follow_service_logs()
+    elif args.action == "logs-openbao":
+        run_cmd(compose_command("openbao", "logs", "--tail", "100", "openbao"), check=True)
+    elif args.action == "logs-semaphore":
+        run_cmd(compose_command("semaphore", "logs", "--tail", "100", "semaphore"), check=True)
 
 if __name__ == "__main__":
     main()

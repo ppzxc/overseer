@@ -1,5 +1,7 @@
 # 1. IDC Server Baseline, Zero-Trust Access, and Hybrid Observability Architecture
 
+> Historical design context. Control-plane composition is superseded by ADR-0007.
+
 - **Status**: Accepted
 - **Date**: 2026-08-26
 - **Deciders**: Overseer Engineering Team & User

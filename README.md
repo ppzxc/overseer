@@ -1,155 +1,72 @@
-# Overseer: IDC Infrastructure Zero-Trust Control Plane
+# Overseer: IDC Infrastructure Control Plane
 
-**Overseer**는 소-중규모 IDC 온프레미스 인프라 환경의 중앙 제어 플레인(OpenBao v2.6.2, HashiCorp Boundary 0.21.3, Semaphore UI v2.19.12, PostgreSQL 15)을 일괄 오케스트레이션하고, 독립된 Ansible GitOps 저장소(`node-provisioner`)를 통해 온프레미스 노드 프로비저닝을 제어하는 Docker Compose 기반 중앙 컨트롤 플레인입니다.
+**Overseer**는 소·중규모 IDC의 SSH 인증서 발급과 Ansible 기반 서버 관리를 제공하는 Docker Compose 프로젝트입니다. OpenBao가 SSH CA와 시크릿을 관리하고, Semaphore UI가 독립된 `node-provisioner` Git 저장소의 플레이북을 실행합니다.
 
----
+## 구성
 
-## 1. 주요 구성 컴포넌트
+| 서비스 | 역할 | 영속 데이터 |
+|---|---|---|
+| OpenBao 2.6.2 | SSH CA, 시크릿 관리, Shamir 또는 GCP Cloud KMS seal | `${DATA_DIR}/openbao/data` |
+| OpenBao 설정 | HCL, seal 프로파일, 정책 | `${DATA_DIR}/openbao/config` |
+| Semaphore UI 2.19.12 | Ansible GitOps UI, 스케줄러, 작업 실행 (메모리 한도 4GiB) | `${DATA_DIR}/semaphore/data` (SQLite) |
+| Semaphore 설정 | Ansible 추가 Python 패키지 목록 | `${DATA_DIR}/semaphore/config` |
+| Semaphore 작업 캐시 | 체크아웃한 저장소와 작업 디렉터리 | `${DATA_DIR}/semaphore/work` |
+| 네트워크 장비 설정 백업 | Cisco 및 FortiGate 설정 백업 파일 | `${DATA_DIR}/network-backups` |
+
+저장소 안에서는 `openbao/compose.yml`, `semaphore/compose.yml`로 각각 관리합니다. 운영에서는 Compose 파일만 `/opt/services/openbao/compose.yml`, `/opt/services/semaphore/compose.yml`에 둡니다. 환경변수는 OpenBao의 `/data/openbao/config/.env`, Semaphore의 `/data/semaphore/config/.env`로 나눠 보관합니다. 운영 스크립트는 `TARGET_DIR`에서 관리하며 Compose 폴더에는 파일 하나만 남깁니다. 설정과 상태 데이터는 `/data/openbao/{config,data}` 및 `/data/semaphore/{config,data,work}`에 보관합니다. 두 Compose 파일은 `name: app`과 `json-file` 로그 회전(`20m`, 3개 파일)을 사용하고 공유 외부 `backend` 네트워크에 연결합니다. Compose 프로젝트 `app`은 Forgejo와 공유하므로 `--remove-orphans`를 사용하지 않습니다.
+
+Semaphore는 SQLite를 기본 저장소로 사용합니다. `/data/semaphore/data`가 컨테이너의 `/var/lib/semaphore`로 연결되고, 작업 캐시는 `/data/semaphore/work`에 저장됩니다. Ansible 추가 Python 패키지 목록은 `/data/semaphore/config/requirements.txt`에서 관리해 컨테이너의 `/etc/semaphore/requirements.txt`로 연결합니다. Cisco와 FortiGate 백업 파일은 컨테이너의 `/var/backups`에서 `${DATA_DIR}/network-backups`로 영속 저장합니다. 전체 Host Audit 플레이북의 메모리 사용량을 고려해 Semaphore 컨테이너는 4GiB로 제한합니다.
+
+Ansible SSH 자격증명은 Semaphore의 암호화된 키스토어에 보관합니다. 컨테이너에는 호스트 `~/.ssh`를 마운트하지 않습니다. 서버의 `authorized_keys`는 호스트 로그인 접근을 위한 파일이고, `known_hosts` 검사는 현재 비활성화되어 있어 이 마운트가 필요하지 않습니다.
 
 ```text
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                    Overseer Central Control Plane (Docker Compose)          │
-│                                                                             │
-│  ┌──────────────────┐    ┌──────────────────┐    ┌───────────────────────┐  │
-│  │ OpenBao (v2.6.2) │    │ Boundary(0.21.3) │    │ Semaphore (v2.19.12)  │  │
-│  │ (SSH CA, Web UI) │    │ (Zero-Trust IAM) │    │ & GitOps Orchestrator │  │
-│  │ [Shamir / GCP-KMS│    │ [AEAD / GCP-KMS] │    └───────────▲───────────┘  │
-│  └────────┬─────────┘    └────────┬─────────┘                │              │
-│           │                       │                          │              │
-│           └──────────────┬────────▼──────────────────────────┴───────────┐  │
-│                          │     PostgreSQL 15 (Boundary & Semaphore DB)   │  │
-│                          └───────────────────────────────────────────────┘  │
-└──────────────────────────────────────┬──────────────────────────────────────┘
-                                       │
-                    GitOps Pull & SSH Orchestration
-                                       │
-┌──────────────────────────────────────▼──────────────────────────────────────┐
-│                            IDC On-Premise Nodes                             │
-│     Target Servers bootstrapped via 'node-provisioner' Ansible Roles        │
-└─────────────────────────────────────────────────────────────────────────────┘
+Operator ──> OpenBao (SSH CA) ──> IDC servers
+    │
+    └──────> Semaphore ──pull──> node-provisioner Git repository
+                    └──────────> IDC servers
 ```
 
----
+## 시작
 
-## 2. 빠른 시작 (Quick Start)
-
-### 0) 로컬 환경 설정 및 점진적 환경변수 활성화 (Lazy Lifecycle)
-`.env.example` 템플릿에는 사용하지 않는 옵션 변수(포트 바인딩, GCP Cloud KMS 등)가 기본 주석(`#`) 처리되어 있으며, `make bootstrap` 단계에서 선택한 모드에 따라 필요한 변수만 주석이 해제(`uncomment`)되고 난수 암호화 키가 자동 주입됩니다.
 ```bash
-# 컨트롤 플레인 환경변수 템플릿 복사
-cp .env.example .env
+make bootstrap
 ```
 
-### 1) 중앙 컨트롤 플레인 부트스트랩 및 서비스 제어
+`make bootstrap`은 서비스별 `.env.example`을 바탕으로 각 모듈 `.env`를 준비하고 OpenBao와 Semaphore를 각자의 Compose 파일로 시작한 뒤 Semaphore의 GitOps 프로젝트와 템플릿을 시딩합니다. 서비스별 관리는 `make start-openbao`, `make start-semaphore`로 수행합니다. OpenBao는 `backend` 네트워크 안에서만 접근하고, Semaphore UI는 `EXPOSE_PORTS=true`일 때 호스트의 `3000` 포트에 바인딩합니다. 호스트 포트를 닫으려면 `semaphore/.env`에서 `EXPOSE_PORTS=false`를 설정합니다.
+
+신규 설치는 `semaphore/.env`의 `SEMAPHORE_ACCESS_KEY_ENCRYPTION`에 `head -c 32 /dev/urandom | base64`로 만든 키를 설정한 뒤 시작합니다. 기존 데이터베이스를 복구하거나 이관할 때에는 기존 키를 그대로 보존합니다. 키를 설정하지 않으면 Compose 시작을 거부합니다. OpenBao 설정은 `openbao/.env`에서 관리합니다.
+
+시딩은 기존 `Overseer Infrastructure` 프로젝트에도 적용됩니다. 현재 유지하는 템플릿의 플레이북과 설정을 갱신하고, 이전 유지보수·드라이런 템플릿은 현재 이름과 플레이북으로 정리합니다. 폐기된 `Provision Overseer Control Plane` 및 `Provision Full Stack (All)` 템플릿은 제거합니다.
+
+주요 관리 명령:
+
 ```bash
-# [전체 통합] 전체 스택 기동 및 초기화 (운영 경로 /opt/services/overseer 자동 복제 배포 지원)
-make bootstrap        # 또는 make up (TARGET_DIR=/opt/services/overseer 지정 가능)
-
-# [운영 필수 파일 동기화/배포만 실행]
-make production-sync  # 운영 필수 구성요소만 대상 경로로 선별 복제 (비운영 파일 제외)
-
-# [KMS 프로파일 변경/주입]
-make configure-seal   # Local Shamir 또는 GCP Cloud KMS 프로파일 대화형/자동 적용
-
-# [전체 상태 확인 / 중지]
-make status           # PostgreSQL, OpenBao, Boundary, Semaphore 헬스체크
-make down             # 전체 서비스 중지
-
-# [개별 서비스 기동/중지/초기화]
-make start-openbao    # OpenBao만 기동 및 SSH CA 언실/초기화
-make start-boundary   # Boundary만 기동 및 DB 마이그레이션
-make start-semaphore  # Semaphore만 기동 및 GitOps 템플릿 시딩
-make stop-boundary    # Boundary 컨테이너 중지
+make status
+make logs
+make down
+make start-openbao
+make start-semaphore
+make production-sync TARGET_DIR=/opt/services/overseer SERVICES_ROOT=/opt/services DATA_ROOT=/data
 ```
 
-#### 마스터 키 관리 & 스토리지 프로파일 (3가지 모드):
-- **[1] Local .env Persisted (`KEY_MANAGEMENT_PROFILE=local`, 기본값)**:
-  - OpenBao Shamir Unseal 키를 로컬 디스크(`/data/openbao/openbao-init.json`)에 저장하고 Boundary AEAD 키 및 Semaphore 키를 `.env`에 보관하여 호스트 재부팅 시 완전 자동 언실/기동됩니다.
-- **[2] Zero-Knowledge Manual (`KEY_MANAGEMENT_PROFILE=manual`)**:
-  - 초기화 시 마스터 키 5종(Boundary AEAD 3종, Semaphore 암호화 키, OpenBao Shamir 키)을 터미널에 1회 백업 박스로 출력한 후 **`.env` 파일 및 디스크에서 즉시 완전 삭제(Zero-Knowledge Wipe)**합니다.
-  - **호스트 재부팅/재시작 시 환경변수 주입 방법**:
-    - **대화형 입력**: `make up` 또는 `make bootstrap` 실행 시 키 누락을 감지하고 마스킹된 터미널 프롬프트를 통해 세션 메모리로 즉시 주입받습니다.
-    - **쉘 환경변수 주입 (비대화형/스크립트)**: 기동 전 터미널 세션에 환경변수를 export 합니다:
-      ```bash
-      export BOUNDARY_KMS_AEAD_ROOT_KEY="<YOUR_ROOT_KEY>"
-      export BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY="<YOUR_WORKER_KEY>"
-      export BOUNDARY_KMS_AEAD_RECOVERY_KEY="<YOUR_RECOVERY_KEY>"
-      export SEMAPHORE_ACCESS_KEY_ENCRYPTION="<YOUR_SEMAPHORE_KEY>"
-      export OPENBAO_UNSEAL_KEY="<YOUR_OPENBAO_UNSEAL_KEY>" # 또는 OpenBao Web UI에서 언실
-      make up
-      ```
-- **[3] External Cloud KMS (`KEY_MANAGEMENT_PROFILE=gcpkms`)**:
-  - Google Cloud KMS Cloud HSM 키를 사용하여 OpenBao 및 Boundary를 자동 언실하며 호스트에 로컬 키를 저장하지 않습니다.
+`make configure-seal`에서 OpenBao의 로컬 Shamir 또는 GCP Cloud KMS 프로파일을 설정할 수 있습니다. Semaphore 키스토어 암호화 키(`SEMAPHORE_ACCESS_KEY_ENCRYPTION`)는 SQLite DB의 자격증명을 읽는 데 필요하므로 기존 값을 보존하세요.
 
-#### 호스트 포트 바인딩 모드:
-- **호스트 노출 모드 (`EXPOSE_PORTS=true`, 기본값)**: `compose.override.yml`이 동적 생성되어 호스트 `0.0.0.0` 인터페이스에 서비스 포트와 1:1 일치하는 포트 매핑을 바인딩합니다.
-  - **OpenBao Web UI / API**: `0.0.0.0:8200:8200` ([http://localhost:8200](http://localhost:8200))
-  - **Boundary Admin UI / API**: `0.0.0.0:9200:9200` ([http://localhost:9200](http://localhost:9200)), Cluster: `9201`, Worker: `9202`
-  - **Semaphore Ansible Web UI**: `0.0.0.0:3000:3000` ([http://localhost:3000](http://localhost:3000), 초기 계정: `admin` / `semaphoreadmin`)
-- **내부망 전용 모드 (`EXPOSE_PORTS=false`)**: `compose.override.yml`이 제외되어 호스트 포트가 전혀 노출되지 않으며, `backend` 브릿지 네트워크로만 안전하게 통신합니다.
+## 기존 PostgreSQL 데이터에서 전환할 때
 
-### 2) 온프레미스 대상 서버 프로비저닝 실행
-- **Semaphore Web UI 접속**: [http://localhost:3000](http://localhost:3000)
-- 사전 등록된 Task 템플릿(`Provision Target Servers`, `Regular Maintenance` 등)에서 **`[Run]`** 버튼 클릭만으로 즉시 프로비저닝 실행 (원격 GitHub `node-provisioner` 자동 연동)
+Semaphore의 PostgreSQL 데이터를 SQLite로 바꾸는 작업은 DB 엔진 변경만으로 완료되지 않습니다. 운영 DB를 백업하고, 동일한 Semaphore 버전으로 초기화한 SQLite DB에 데이터를 복사한 뒤 검증해야 합니다. `ns0266.nanoit.kr`의 계획된 이관은 [운영 이관 런북](docs/control-plane/semaphore-postgres-to-sqlite.md)을 따릅니다. 저장소에는 이관 도구가 포함되어 있으며, PostgreSQL 데이터 디렉터리와 롤백 구성을 보존하도록 안내합니다.
 
-### 3) 3단 정합성 검증 및 E2E 테스트
+운영 파일 동기화는 `TARGET_DIR`에 운영 도구를, `/opt/services/{openbao,semaphore}`에 `compose.yml`만 배포합니다. 서비스별 설정, 비밀값과 데이터는 `/data` 아래에 보관하며 기존 값은 유지합니다. `production-sync`는 파일을 동기화하고 컨테이너를 재기동하지 않습니다.
+
+## 검증
+
 ```bash
-# 1. 3단 정합성 검증 (스펙 문서 <-> 코드 <-> 테스트)
 make spec-check
-
-# 2. Control Plane E2E 시스템 통합 테스트 실행 (Pytest)
 make test-e2e
 ```
 
----
+## 문서 및 저장소
 
-## 3. 디렉토리 구조
-
-```text
-overseer/
-├── AGENTS.md                  # AI 및 엔지니어 협업 가이드
-├── CONTEXT.md                 # Overseer 도메인 컨텍스트
-├── README.md                  # 본 문서
-├── compose.yml                # 기본 컨트롤 플레인 정의 (포트 미노출 베이스라인)
-├── compose.override.yml       # [동적 생성] 0.0.0.0 1:1 호스트 포트 바인딩 오버라이드
-├── .env.example               # 점진적 주석 해제 지원 환경 변수 템플릿
-├── Makefile                   # 원클릭 통합 제어 인터페이스 (make bootstrap, status 등)
-│
-├── docs/                      # [전역 문서 저장소]
-│   ├── control-plane/         # [중앙 컨트롤 플레인 스펙 및 태스크 매트릭스]
-│   ├── tests/                 # [테스트 및 검증 가이드라인]
-│   └── adr/                   # Architecture Decision Records
-│
-├── tests/                     # [E2E 시스템 통합 테스트 스위트 (Pytest)]
-│   ├── conftest.py
-│   ├── test_00_spec_traceability.py
-│   ├── test_01_control_plane.py
-│   ├── test_02_openbao_ssh_ca.py
-│   ├── test_03_boundary.py
-│   ├── test_04_ansible_e2e.py
-│   ├── test_05_provisioning_onboarding.py
-│   ├── test_06_seal_matrix.py
-│   └── test_07_production_deployment.py
-│
-├── openbao/                   # OpenBao 오픈소스 시크릿/SSH CA 설정 & 초기화
-│   ├── config/profiles/       # Local Shamir 및 GCP Cloud KMS 프로파일
-│   └── scripts/               # SSH CA 엔진 활성화 및 Auto-Unseal 호환 스크립트
-├── boundary/                  # HashiCorp Boundary Zero-Trust 설정
-│   ├── config/profiles/       # Controller / Worker Local AEAD 및 GCP KMS 프로파일
-│   └── scripts/               # Boundary DB 초기화 스크립트
-└── scripts/                   # 중앙 헬스체크 및 GitOps 시딩
-    ├── orchestrator.py        # 통합 라이프사이클 및 SEAL/Port/Env 주입 오케스트레이터
-    ├── init-semaphore.sh      # Semaphore UI GitOps 자동 시딩
-    └── validate-specs.py      # 3-Way Traceability 검증기
-```
-
----
-
-## 4. 상세 문서 링크
-
-- 🧪 [3-Way Traceability 매트릭스 리포트](file:///home/ppzxc/projects/overseer/docs/tests/TRACEABILITY_MATRIX.md)
-- 🔐 [컨트롤 플레인 스펙 (`docs/control-plane/`)](file:///home/ppzxc/projects/overseer/docs/control-plane/INDEX.md)
-- 🏛️ [ADR-0005: Pluggable Seal/Unseal Backend Profiles](file:///home/ppzxc/projects/overseer/docs/adr/0005-pluggable-seal-unseal-backend-profiles.md)
-- 🏛️ [ADR-0006: Modular 1:1 Host Port Binding and Lazy .env Variable Lifecycle](file:///home/ppzxc/projects/overseer/docs/adr/0006-compose-override-port-binding-and-env-lifecycle.md)
-- 🧪 [E2E 시스템 통합 테스트 가이드](file:///home/ppzxc/projects/overseer/docs/tests/E2E_TESTING_GUIDELINE.md)
-- 🌐 [Node-Provisioner Ansible GitOps 저장소](https://github.com/ppzxc/node-provisioner)
+- [컨트롤 플레인 스펙](docs/control-plane/INDEX.md)
+- [테스트 가이드](docs/tests/INDEX.md)
+- [프로비저닝 및 마이그레이션 가이드](docs/PROVISIONING_AND_MIGRATION_GUIDELINE.md)
+- [node-provisioner Ansible 저장소](https://github.com/ppzxc/node-provisioner)

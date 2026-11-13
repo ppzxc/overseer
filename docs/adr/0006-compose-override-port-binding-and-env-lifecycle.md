@@ -1,4 +1,4 @@
-# ADR 0006: Modular 1:1 Host Port Binding via compose.override.yml and Lazy .env Variable Lifecycle
+# ADR 0006: Modular Host Port Binding via Service Compose Overrides
 
 - **Status**: Accepted
 - **Date**: 2026-09-02
@@ -21,22 +21,18 @@
 
 ## 2. Decision Outcomes (결정 사항)
 
-### 2.1 `compose.override.yml` 기반의 1:1 포트 바인딩 오버라이드
-- 기본 `compose.yml`에서는 모든 서비스의 `ports:` 블록을 제거하여 기본 상태를 완전 내부망 전용(Internal only)으로 정의합니다.
+### 2.1 서비스별 Compose 오버라이드 기반 포트 바인딩
+- `openbao/compose.yml`, `semaphore/compose.yml`은 `ports:`를 포함하지 않습니다. OpenBao는 backend 네트워크 내부에서만 접근합니다.
 - `make bootstrap` 또는 `orchestrator.py` 실행 시 `EXPOSE_PORTS=true`인 경우:
-  - `compose.override.yml`을 동적으로 생성하여 `0.0.0.0:<port>:<port>` 1:1 바인딩을 주입합니다.
-    - OpenBao: `0.0.0.0:8200:8200`
-    - Boundary Controller: `0.0.0.0:9200:9200`, `0.0.0.0:9201:9201`
-    - Boundary Worker: `0.0.0.0:9202:9202`
-    - Semaphore UI: `0.0.0.0:3000:3000`
+  - 저장소 로컬 실행에서는 `semaphore/compose.override.yml`을, 분리된 운영 서비스 디렉터리에서는 Overseer 운영 루트의 `semaphore.compose.override.yml`을 생성하여 Semaphore UI의 `0.0.0.0:3000:3000` 바인딩을 주입합니다. 운영 서비스 디렉터리에는 `compose.yml`만 남깁니다.
 - `EXPOSE_PORTS=false` (Internal only)인 경우:
-  - `compose.override.yml` 파일을 삭제하여 호스트 포트 바인딩을 원천 차단합니다.
+  - 로컬/운영 루트의 서비스별 override 파일을 삭제하여 Semaphore UI 호스트 포트 바인딩을 차단합니다.
 
 ### 2.2 `.env` 점진적 활성화 (Comment / Uncomment Lifecycle)
 - `scripts/orchestrator.py`에 `set_env_var(key, value, uncomment)` 로직을 구현하여:
   - `SEAL_TYPE=gcpkms` 선택 시: GCP Cloud KMS 변수(`GCP_PROJECT`, `GCP_REGION`, `GCP_KEY_RING` 등) 주석 해제 및 설정.
   - `SEAL_TYPE=local` 선택 시: GCP Cloud KMS 변수를 주석(`#`) 처리 상태로 유지.
-  - `EXPOSE_PORTS=true` 선택 시: 포트 변수 주석 해제 및 `0.0.0.0:<port>:<port>` 설정.
+  - `EXPOSE_PORTS=true` 선택 시: Semaphore 포트 변수 주석 해제 및 기본값 `0.0.0.0:3000:3000` 설정.
   - `EXPOSE_PORTS=false` 선택 시: 포트 변수를 주석(`#`) 처리하여 `.env` 가독성 및 보안성 확보.
 
 ---

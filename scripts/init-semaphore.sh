@@ -118,50 +118,65 @@ if [ -z "${ENV_ID}" ] || [ "${ENV_ID}" == "null" ]; then
     ENV_ID=$(echo "${NEW_ENV}" | jq -r '.id')
 fi
 
-# 8. Task Templates 등록 함수
-create_template_if_missing() {
+# 8. Remove templates that belonged to the retired control-plane workflows.
+TEMPLATES_URL="${SEMAPHORE_ADDR}/api/project/${PROJECT_ID}/templates"
+TPLS_JSON=$(curl -s -b "${COOKIE_JAR}" "${TEMPLATES_URL}")
+while IFS=$'\t' read -r TEMPLATE_ID TEMPLATE_NAME; do
+    [ -n "${TEMPLATE_ID}" ] || continue
+    echo "[*] Removing retired Task Template: ${TEMPLATE_NAME}..."
+    curl -s -b "${COOKIE_JAR}" -X DELETE "${TEMPLATES_URL}/${TEMPLATE_ID}" >/dev/null
+done < <(echo "${TPLS_JSON}" | jq -r '.[] | select(.name == "2. Provision Overseer Control Plane" or .name == "3. Provision Full Stack (All)") | [.id, .name] | @tsv')
+
+# 9. Reconcile Task Templates with the current GitOps playbooks.
+reconcile_template() {
     local TPL_NAME="$1"
     local PLAYBOOK="$2"
     local DESC="$3"
     local EXTRA_ARGS="$4"
+    local LEGACY_NAME="${5:-}"
 
-    local TPLS_JSON=$(curl -s -b "${COOKIE_JAR}" "${SEMAPHORE_ADDR}/api/project/${PROJECT_ID}/templates")
-    local EXISTING_ID=$(echo "${TPLS_JSON}" | jq -r ".[] | select(.name == \"${TPL_NAME}\") | .id" 2>/dev/null || true)
+    local TPLS_JSON=$(curl -s -b "${COOKIE_JAR}" "${TEMPLATES_URL}")
+    local EXISTING=$(echo "${TPLS_JSON}" | jq -c --arg name "${TPL_NAME}" --arg legacy "${LEGACY_NAME}" '.[] | select(.name == $name or ($legacy != "" and .name == $legacy))' | head -n 1)
+    local TEMPLATE_FIELDS=$(jq -n \
+        --arg name "${TPL_NAME}" \
+        --arg desc "${DESC}" \
+        --arg playbook "${PLAYBOOK}" \
+        --argjson repo_id "${REPO_ID}" \
+        --argjson inv_id "${INV_ID}" \
+        --argjson env_id "${ENV_ID}" \
+        --arg extra "${EXTRA_ARGS}" \
+        '{
+            name: $name,
+            description: $desc,
+            playbook: $playbook,
+            repository_id: $repo_id,
+            inventory_id: $inv_id,
+            environment_id: $env_id,
+            arguments: (if $extra != "" then $extra else null end)
+        }')
 
-    if [ -z "${EXISTING_ID}" ] || [ "${EXISTING_ID}" == "null" ]; then
+    if [ -z "${EXISTING}" ]; then
         echo "[*] Creating Task Template: ${TPL_NAME}..."
-        local PAYLOAD=$(jq -n \
-            --arg name "${TPL_NAME}" \
-            --arg desc "${DESC}" \
-            --arg playbook "${PLAYBOOK}" \
-            --argjson repo_id "${REPO_ID}" \
-            --argjson inv_id "${INV_ID}" \
-            --argjson env_id "${ENV_ID}" \
-            --arg extra "${EXTRA_ARGS}" \
-            '{
-                name: $name,
-                description: $desc,
-                playbook: $playbook,
-                repository_id: $repo_id,
-                inventory_id: $inv_id,
-                environment_id: $env_id,
-                arguments: (if $extra != "" then $extra else null end)
-            }')
-        curl -s -b "${COOKIE_JAR}" -X POST "${SEMAPHORE_ADDR}/api/project/${PROJECT_ID}/templates" \
+        local PAYLOAD="${TEMPLATE_FIELDS}"
+        curl -s -b "${COOKIE_JAR}" -X POST "${TEMPLATES_URL}" \
             -H "Content-Type: application/json" \
             -d "${PAYLOAD}" >/dev/null
         echo "[+] Template created: ${TPL_NAME}"
     else
-        echo "[*] Template '${TPL_NAME}' already exists."
+        local EXISTING_ID=$(echo "${EXISTING}" | jq -r '.id')
+        local PAYLOAD=$(echo "${EXISTING}" | jq --argjson fields "${TEMPLATE_FIELDS}" '. + $fields')
+        echo "[*] Updating Task Template: ${TPL_NAME} (ID: ${EXISTING_ID})..."
+        curl -s -b "${COOKIE_JAR}" -X PUT "${TEMPLATES_URL}/${EXISTING_ID}" \
+            -H "Content-Type: application/json" \
+            -d "${PAYLOAD}" >/dev/null
+        echo "[+] Template reconciled: ${TPL_NAME}"
     fi
 }
 
-# 9. 주요 플레이북 템플릿 일괄 등록
+# 10. 주요 플레이북 템플릿 일괄 등록
 echo "[*] Seeding Ansible Task Templates..."
-create_template_if_missing "1. Provision Target Servers" "playbooks/provision_servers.yml" "Baseline provisioning for IDC target servers (SSH CA + Boundary + OTEL)" ""
-create_template_if_missing "2. Provision Overseer Control Plane" "playbooks/provision_overseer.yml" "Host setup for Overseer Control Plane node (Docker CE + Hardening)" ""
-create_template_if_missing "3. Provision Full Stack (All)" "playbooks/provision.yml" "Full-stack provisioning for all managed nodes and overseer host" ""
-create_template_if_missing "4. Regular Maintenance & Patching" "playbooks/maintenance.yml" "Routine OS security patching and telemetry agent update" ""
-create_template_if_missing "5. Dry-Run Check & Diff (Simulation)" "playbooks/provision.yml" "Dry-run simulation to preview changes without modifying servers" "--check --diff"
+reconcile_template "1. Provision Target Servers" "playbooks/provision_servers.yml" "Baseline provisioning for IDC target servers (OpenBao SSH CA + OTEL)" ""
+reconcile_template "2. Regular Maintenance & Patching" "playbooks/maintenance.yml" "Routine OS security patching and telemetry agent update" "" "4. Regular Maintenance & Patching"
+reconcile_template "3. Dry-Run Check & Diff (Simulation)" "playbooks/provision_servers.yml" "Dry-run simulation to preview changes without modifying servers" "--check --diff" "5. Dry-Run Check & Diff (Simulation)"
 
 echo "[+] Semaphore UI auto-seeding completed successfully!"

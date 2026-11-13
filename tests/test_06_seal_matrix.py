@@ -1,8 +1,6 @@
 """
-E2E Test 06: Pluggable KMS Seal/Unseal Matrix, Port Exposure & Key Modes
-Verifies that OpenBao and Boundary support multi-backend profiles (Local Shamir/AEAD and GCP Cloud KMS),
-validates port binding configuration branching, external backend network auto-creation,
-and manual/auto Shamir and AEAD lifecycle modes.
+E2E Test 06: OpenBao Seal Matrix, Port Exposure & Key Modes
+Verifies OpenBao seal profiles, port binding, network setup, and manual/auto key lifecycle modes.
 """
 
 import os
@@ -13,20 +11,12 @@ from pathlib import Path
 def test_ctrl_007_seal_profiles_existence(root_dir):
     """[CTRL-007] Pluggable Seal and KMS Backend Configuration Profiles exist"""
     openbao_profiles = root_dir / "openbao" / "config" / "profiles"
-    boundary_profiles = root_dir / "boundary" / "config" / "profiles"
-    
     assert openbao_profiles.exists(), "openbao/config/profiles directory is missing"
-    assert boundary_profiles.exists(), "boundary/config/profiles directory is missing"
     
     # Check OpenBao profiles
     assert (openbao_profiles / "local-shamir.hcl").exists(), "local-shamir.hcl profile missing in OpenBao"
     assert (openbao_profiles / "gcp-kms.hcl").exists(), "gcp-kms.hcl profile missing in OpenBao"
     
-    # Check Boundary Controller & Worker profiles
-    assert (boundary_profiles / "local-aead.hcl").exists(), "local-aead.hcl profile missing in Boundary"
-    assert (boundary_profiles / "gcp-kms.hcl").exists(), "gcp-kms.hcl profile missing in Boundary"
-    assert (boundary_profiles / "worker-local-aead.hcl").exists(), "worker-local-aead.hcl profile missing in Boundary"
-    assert (boundary_profiles / "worker-gcp-kms.hcl").exists(), "worker-gcp-kms.hcl profile missing in Boundary"
 
 def test_ctrl_007_openbao_profile_content(root_dir):
     """[CTRL-007] OpenBao Profile configurations syntax and seal backend declarations"""
@@ -41,30 +31,6 @@ def test_ctrl_007_openbao_profile_content(root_dir):
     assert 'seal "gcpckms"' in gcp_kms, 'seal "gcpckms" block missing in gcp-kms profile'
     assert 'project' in gcp_kms and 'key_ring' in gcp_kms and 'crypto_key' in gcp_kms, "GCP KMS attributes missing in profile"
 
-def test_ctrl_007_boundary_profile_content(root_dir):
-    """[CTRL-007] Boundary Controller and Worker Profile KMS backend declarations"""
-    boundary_profiles = root_dir / "boundary" / "config" / "profiles"
-    
-    # Local AEAD controller
-    local_ctrl = (boundary_profiles / "local-aead.hcl").read_text(encoding="utf-8")
-    assert 'kms "aead"' in local_ctrl, "kms aead missing in local-aead controller profile"
-    assert 'purpose   = "root"' in local_ctrl
-    assert 'purpose   = "worker-auth"' in local_ctrl
-    assert 'purpose   = "recovery"' in local_ctrl
-    assert 'purpose     = "api"' in local_ctrl, "purpose = api missing in local-aead controller"
-    assert 'purpose     = "cluster"' in local_ctrl, "purpose = cluster missing in local-aead controller"
-    
-    # Local AEAD worker
-    local_worker = (boundary_profiles / "worker-local-aead.hcl").read_text(encoding="utf-8")
-    assert 'purpose     = "proxy"' in local_worker, "purpose = proxy missing in worker profile"
-    
-    # GCP KMS controller
-    gcp_ctrl = (boundary_profiles / "gcp-kms.hcl").read_text(encoding="utf-8")
-    assert 'kms "gcpckms"' in gcp_ctrl, 'kms "gcpckms" missing in gcp-kms controller profile'
-    assert 'purpose    = "root"' in gcp_ctrl
-    assert 'purpose    = "worker-auth"' in gcp_ctrl
-    assert 'purpose    = "recovery"' in gcp_ctrl
-
 def test_ctrl_007_orchestrator_seal_and_port_branching(root_dir):
     import sys
     sys.path.insert(0, str(root_dir / "scripts"))
@@ -74,71 +40,65 @@ def test_ctrl_007_orchestrator_seal_and_port_branching(root_dir):
     os.environ["SEAL_TYPE"] = "local"
     os.environ["EXPOSE_PORTS"] = "true"
     os.environ["OPENBAO_SHAMIR_MODE"] = "auto"
-    os.environ["BOUNDARY_AEAD_MODE"] = "auto"
+    os.environ["KEY_MANAGEMENT_PROFILE"] = "local"
     
     res = orchestrator.prompt_and_configure_all(interactive=False)
     assert res["seal_type"] == "local"
     assert res["expose_ports"] is True
     assert res["shamir_mode"] == "auto"
-    assert res["aead_mode"] == "auto"
     
     active_openbao = (root_dir / "openbao" / "config" / "openbao.hcl").read_text(encoding="utf-8")
     assert 'storage "raft"' in active_openbao
     assert 'seal "gcpckms"' not in active_openbao
     
-    # Check compose.override.yml exists and has 0.0.0.0 bindings
-    override_file = root_dir / "compose.override.yml"
-    assert override_file.exists(), "compose.override.yml should be generated when EXPOSE_PORTS=true"
-    override_content = override_file.read_text(encoding="utf-8")
-    assert "0.0.0.0:8200:8200" in override_content
-    assert "0.0.0.0:3000:3000" in override_content
+    # Only Semaphore gets a host binding; OpenBao stays internal to backend.
+    openbao_override = root_dir / "openbao" / "compose.override.yml"
+    semaphore_override = root_dir / "semaphore" / "compose.override.yml"
+    assert not openbao_override.exists(), "OpenBao must remain internal when EXPOSE_PORTS=true"
+    assert semaphore_override.exists(), "Semaphore override should be generated when EXPOSE_PORTS=true"
+    assert "0.0.0.0:3000:3000" in semaphore_override.read_text(encoding="utf-8")
     
-    env_content = (root_dir / ".env").read_text(encoding="utf-8")
-    assert "OPENBAO_PORT_BINDING=0.0.0.0:8200:8200" in env_content
-    assert "SEMAPHORE_PORT_BINDING=0.0.0.0:3000:3000" in env_content
-    assert "OPENBAO_SHAMIR_MODE=auto" in env_content
+    semaphore_env = (root_dir / "semaphore" / ".env").read_text(encoding="utf-8")
+    openbao_env = (root_dir / "openbao" / ".env").read_text(encoding="utf-8")
+    assert "SEMAPHORE_PORT_BINDING=0.0.0.0:3000:3000" in semaphore_env
+    assert "OPENBAO_SHAMIR_MODE=auto" in openbao_env
     # When SEAL_TYPE=local, GCP keys should remain commented
-    assert "# GCP_PROJECT=" in env_content
+    assert "# GCP_PROJECT=" in openbao_env
     
     # 2. Test GCP Cloud KMS + Internal Ports + Manual Shamir
     os.environ["SEAL_TYPE"] = "gcpkms"
     os.environ["EXPOSE_PORTS"] = "false"
     os.environ["OPENBAO_SHAMIR_MODE"] = "manual"
-    os.environ["BOUNDARY_AEAD_MODE"] = "manual"
     os.environ["GCP_PROJECT"] = "test-proj"
     os.environ["GCP_REGION"] = "asia-northeast3"
     os.environ["GCP_KEY_RING"] = "test-ring"
     os.environ["GCP_OPENBAO_KEY"] = "test-bao-key"
-    os.environ["GCP_BOUNDARY_ROOT_KEY"] = "test-bnd-root"
-    os.environ["GCP_BOUNDARY_WORKER_AUTH_KEY"] = "test-bnd-worker"
-    os.environ["GCP_BOUNDARY_RECOVERY_KEY"] = "test-bnd-recovery"
     
     res_gcp = orchestrator.prompt_and_configure_all(interactive=False)
     assert res_gcp["seal_type"] == "gcpkms"
     assert res_gcp["expose_ports"] is False
     assert res_gcp["shamir_mode"] == "manual"
-    assert res_gcp["aead_mode"] == "manual"
     
     active_openbao_gcp = (root_dir / "openbao" / "config" / "openbao.hcl").read_text(encoding="utf-8")
     assert 'seal "gcpckms"' in active_openbao_gcp
     assert 'project     = "test-proj"' in active_openbao_gcp
     
-    # When EXPOSE_PORTS=false, compose.override.yml should be deleted
-    assert not override_file.exists(), "compose.override.yml should be removed when EXPOSE_PORTS=false"
+    # When EXPOSE_PORTS=false, both service overrides should be deleted.
+    assert not openbao_override.exists(), "OpenBao override should be removed when EXPOSE_PORTS=false"
+    assert not semaphore_override.exists(), "Semaphore override should be removed when EXPOSE_PORTS=false"
     
-    env_content_internal = (root_dir / ".env").read_text(encoding="utf-8")
-    assert "EXPOSE_PORTS=false" in env_content_internal
+    semaphore_env_internal = (root_dir / "semaphore" / ".env").read_text(encoding="utf-8")
+    openbao_env_internal = (root_dir / "openbao" / ".env").read_text(encoding="utf-8")
+    assert "EXPOSE_PORTS=false" in semaphore_env_internal
     # When ports are not exposed, port binding variables should be commented out
-    assert "# OPENBAO_PORT_BINDING=" in env_content_internal
-    assert "OPENBAO_SHAMIR_MODE=manual" in env_content_internal
+    assert "OPENBAO_SHAMIR_MODE=manual" in openbao_env_internal
     # When SEAL_TYPE=gcpkms, GCP keys should be uncommented
-    assert "GCP_PROJECT=test-proj" in env_content_internal
+    assert "GCP_PROJECT=test-proj" in openbao_env_internal
     
     # Revert back to local + exposed for standard testing
     os.environ["SEAL_TYPE"] = "local"
     os.environ["EXPOSE_PORTS"] = "true"
     os.environ["OPENBAO_SHAMIR_MODE"] = "auto"
-    os.environ["BOUNDARY_AEAD_MODE"] = "auto"
     orchestrator.prompt_and_configure_all(interactive=False)
 
 def test_ctrl_007_openbao_init_script_unseal_branching(root_dir):
@@ -152,14 +112,14 @@ def test_ctrl_007_openbao_init_script_unseal_branching(root_dir):
     assert "sys/seal-status" in init_script, "seal-status checking missing in init-openbao-ssh-ca.sh"
     
     # Verify Compose and Orchestrator bindings
-    compose_content = (root_dir / "compose.yml").read_text(encoding="utf-8")
-    assert "OPENBAO_SHAMIR_MODE:" in compose_content, "OPENBAO_SHAMIR_MODE missing from compose.yml"
+    compose_content = (root_dir / "openbao" / "compose.yml").read_text(encoding="utf-8")
+    assert "OPENBAO_SHAMIR_MODE:" in compose_content, "OPENBAO_SHAMIR_MODE missing from openbao/compose.yml"
     
     orchestrator_code = (root_dir / "scripts" / "orchestrator.py").read_text(encoding="utf-8")
     assert "OPENBAO_SHAMIR_MODE=" in orchestrator_code, "OPENBAO_SHAMIR_MODE propagation missing in orchestrator.py"
 
 def test_ctrl_007_manual_mode_zero_knowledge_wipe(root_dir):
-    """[CTRL-007] Zero-Knowledge Manual mode wipes master KMS and encryption keys from .env after initialization"""
+    """[CTRL-007] Zero-Knowledge Manual mode wipes the Semaphore encryption key from .env."""
     import sys
     sys.path.insert(0, str(root_dir / "scripts"))
     import orchestrator
@@ -173,21 +133,14 @@ def test_ctrl_007_manual_mode_zero_knowledge_wipe(root_dir):
     assert res["key_management_profile"] == "manual"
     
     # 2. Check keys in memory / os.environ are present during session
-    assert os.getenv("BOUNDARY_KMS_AEAD_ROOT_KEY"), "Root key should be generated in memory"
-    assert os.getenv("BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY"), "Worker auth key should be generated in memory"
-    assert os.getenv("BOUNDARY_KMS_AEAD_RECOVERY_KEY"), "Recovery key should be generated in memory"
     assert os.getenv("SEMAPHORE_ACCESS_KEY_ENCRYPTION"), "Semaphore key should be generated in memory"
     
     # 3. Verify .env file on disk has NO keys (completely wiped for zero-knowledge)
-    env_content = (root_dir / ".env").read_text(encoding="utf-8")
-    assert "BOUNDARY_KMS_AEAD_ROOT_KEY=\n" in env_content or "BOUNDARY_KMS_AEAD_ROOT_KEY=\"\"" in env_content or "BOUNDARY_KMS_AEAD_ROOT_KEY=" in env_content
+    env_content = (root_dir / "semaphore" / ".env").read_text(encoding="utf-8")
     assert "SEMAPHORE_ACCESS_KEY_ENCRYPTION=\n" in env_content or "SEMAPHORE_ACCESS_KEY_ENCRYPTION=\"\"" in env_content or "SEMAPHORE_ACCESS_KEY_ENCRYPTION=" in env_content
     
     # Parse env directly and assert they are empty string in .env
-    env_vars = orchestrator.read_env_file()
-    assert env_vars.get("BOUNDARY_KMS_AEAD_ROOT_KEY") == "", "BOUNDARY_KMS_AEAD_ROOT_KEY must be empty in .env"
-    assert env_vars.get("BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY") == "", "BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY must be empty in .env"
-    assert env_vars.get("BOUNDARY_KMS_AEAD_RECOVERY_KEY") == "", "BOUNDARY_KMS_AEAD_RECOVERY_KEY must be empty in .env"
+    env_vars = orchestrator.read_env_file(service="semaphore")
     assert env_vars.get("SEMAPHORE_ACCESS_KEY_ENCRYPTION") == "", "SEMAPHORE_ACCESS_KEY_ENCRYPTION must be empty in .env"
 
 def test_ctrl_007_reboot_injection_support(root_dir):

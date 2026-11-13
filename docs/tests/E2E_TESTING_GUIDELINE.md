@@ -1,6 +1,6 @@
 # Control Plane E2E 시스템 통합 테스트 가이드라인 (Pytest)
 
-본 문서는 **Overseer**의 중앙 컨트롤 플레인(OpenBao, Boundary, Semaphore UI, PostgreSQL)이 유기적으로 연결되어 동작하는지 검증하는 **E2E 시스템 통합 테스트 스위트(`tests/`)**의 구조와 실행 가이드를 정의합니다.
+본 문서는 **Overseer**의 중앙 컨트롤 플레인(OpenBao, Semaphore UI, SQLite)이 유기적으로 동작하는지 검증하는 **E2E 시스템 통합 테스트 스위트(`tests/`)**의 구조와 실행 가이드를 정의합니다.
 
 ---
 
@@ -11,9 +11,8 @@
 │                      Pytest E2E System Integration Suite                    │
 │                                                                             │
 │  [test_00_spec_traceability.py] ───> 전역 3단 정합성 검증 (validate-specs)  │
-│  [test_01_control_plane.py]     ───> Postgres, OpenBao, Boundary, Semaphore │
+│  [test_01_control_plane.py]     ───> SQLite config, OpenBao, Semaphore    │
 │  [test_02_openbao_ssh_ca.py]    ───> OpenBao SSH CA 키 생성 & 인증서 서명  │
-│  [test_03_boundary.py]          ───> Boundary Controller & Worker 프록시   │
 │  [test_04_ansible_e2e.py]       ───> Semaphore GitOps & Volume 정합성 검증 │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -25,9 +24,8 @@
 | 테스트 파일 | 주요 검증 항목 |
 |---|---|
 | `test_00_spec_traceability.py` | 모든 컨트롤 플레인 스펙 문서, 구현 코드, 자동화 테스트 간의 **3-Way 정합성 100% 검증** |
-| `test_01_control_plane.py` | PostgreSQL(5432), OpenBao(8200), Boundary(9200), Semaphore UI(3000) 포트 및 HTTP 헬스체크 |
+| `test_01_control_plane.py` | Semaphore SQLite 영속 저장소, OpenBao(8200), Semaphore UI(3000) 설정 및 HTTP 헬스체크 |
 | `test_02_openbao_ssh_ca.py` | OpenBao Unseal 상태, SSH CA 공개키 생성 및 **실시간 SSH User Certificate 서명 발급** |
-| `test_03_boundary.py` | Boundary Controller 클러스터 포트(9201) 및 Worker 프록시 포트(9202) 정상 리스닝 |
 | `test_04_ansible_e2e.py` | Semaphore UI의 GitOps 원격 레포지토리 연동 및 환경 구성 검증 |
 | `test_05_provisioning_onboarding.py` | Greenfield(신규 OS 베이스라인 주입) 및 Brownfield(3단계 레거시 마이그레이션 & SSH 락아웃 방지) 온보딩 워크플로우 및 OS 호환성 검증 |
 

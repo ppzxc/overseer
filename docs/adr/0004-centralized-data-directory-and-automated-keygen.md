@@ -1,5 +1,7 @@
 # 4. Centralized /data Directory Layout and Automated Secret Keygen on Bootstrap
 
+> Database and Boundary storage decisions are superseded by ADR-0007; remaining details are historical context.
+
 - **Status**: Accepted
 - **Date**: 2026-09-02
 - **Deciders**: Overseer Engineering Team & User

@@ -1,5 +1,7 @@
 # ADR 0005: Pluggable Seal/Unseal Backend Profiles for OpenBao & Boundary
 
+> Superseded by ADR-0007. OpenBao Shamir and GCP Cloud KMS profiles remain; Boundary profiles were removed.
+
 ## 1. Context & Background (배경)
 Overseer는 소-중규모 온프레미스 IDC 인프라를 위한 Docker Compose 기반 중앙 컨트롤 플레인입니다.
 기본 환경에서는 완전한 독립 구동을 위해 OpenBao Shamir 키 방식 및 Boundary 로컬 AEAD 환경변수 암호화 키 방식을 사용합니다.

@@ -1,8 +1,6 @@
 .PHONY: help up down restart status logs bootstrap preflight \
         start-openbao stop-openbao restart-openbao init-openbao \
-        start-boundary stop-boundary restart-boundary init-boundary \
         start-semaphore stop-semaphore restart-semaphore init-semaphore \
-        start-postgres stop-postgres restart-postgres init-postgres \
         configure-seal production-sync spec-check test test-e2e clean
 
 # Default Target
@@ -11,18 +9,17 @@ help:
 	@echo "                      Overseer Infrastructure Control Plane                     "
 	@echo "================================================================================"
 	@echo "  make preflight                - Run pre-flight checks (tools, permissions, ports)"
-	@echo "  make up / bootstrap           - Start & bootstrap all Control Plane components"
-	@echo "                                  (supports TARGET_DIR=/opt/services/overseer)"
+	@echo "  make up / bootstrap           - Start and initialize both service Compose projects"
 	@echo "  make production-sync          - Sync only production-critical operational files"
 	@echo "  make configure-seal           - Apply KMS seal/unseal profile (local / gcpkms)"
 	@echo "  make down                     - Stop all Control Plane components"
 	@echo "  make restart                  - Restart all Control Plane components"
-	@echo "  make status                   - Check health of OpenBao, Boundary (Ctrl & Worker), Postgres, Semaphore"
+	@echo "  make status                   - Check health of OpenBao and Semaphore"
 	@echo "  make logs                     - View live logs of all services"
 	@echo "--------------------------------------------------------------------------------"
-	@echo "  Individual Service Management (OpenBao, Boundary, Semaphore, Postgres):"
+	@echo "  Individual Service Management (OpenBao, Semaphore):"
 	@echo "  make start-<service>          - Start individual service (e.g. make start-openbao)"
-	@echo "  make stop-<service>           - Stop individual service (e.g. make stop-boundary)"
+	@echo "  make stop-<service>           - Stop individual service (e.g. make stop-openbao)"
 	@echo "  make restart-<service>        - Restart individual service (e.g. make restart-semaphore)"
 	@echo "  make init-<service>           - Run component init (e.g. make init-openbao)"
 	@echo "--------------------------------------------------------------------------------"
@@ -35,105 +32,70 @@ help:
 # ------------------------------------------------------------------------------
 TARGET_DIR ?=
 TARGET_FLAG := $(if $(TARGET_DIR),--target-dir $(TARGET_DIR),)
+SERVICES_ROOT ?= /opt/services
+DATA_ROOT ?= /data
 
 env-file:
-	@if [ ! -f .env ]; then ./scripts/orchestrator.py configure-seal >/dev/null 2>&1 || cp .env.example .env; fi
-
-wait-postgres: env-file
-	@echo "[*] Waiting for PostgreSQL..."
-	@until docker compose exec -T postgres pg_isready >/dev/null 2>&1; do sleep 2; done
-	@echo "[+] PostgreSQL is ready."
-
-ensure-semaphore-db: wait-postgres
-	@echo "[*] Ensuring PostgreSQL databases are configured..."
-	@./scripts/orchestrator.py init-postgres >/dev/null 2>&1 || true
+	@./scripts/orchestrator.py configure-seal >/dev/null 2>&1
 
 configure-seal: env-file
 	@./scripts/orchestrator.py configure-seal
 
 # ------------------------------------------------------------------------------
-# Full Stack (Unified)
+# Local Bootstrap and Production File Sync
 # ------------------------------------------------------------------------------
 preflight:
 	@./scripts/orchestrator.py preflight
 
 up bootstrap: env-file
-	@./scripts/orchestrator.py bootstrap $(TARGET_FLAG)
+	@./scripts/orchestrator.py bootstrap
 
 production-sync: env-file
-	@./scripts/orchestrator.py deploy-target $(TARGET_FLAG)
+	@./scripts/orchestrator.py deploy-target $(TARGET_FLAG) --services-root $(SERVICES_ROOT) --data-root $(DATA_ROOT)
 
 down:
-	@docker compose down
+	@./scripts/orchestrator.py down
 
 restart:
-	@docker compose restart
+	@./scripts/orchestrator.py restart-openbao
+	@./scripts/orchestrator.py restart-semaphore
 
 status:
 	@./scripts/orchestrator.py status
 
 logs:
-	@docker compose logs -f
+	@./scripts/orchestrator.py logs
 
 # ------------------------------------------------------------------------------
 # OpenBao
 # ------------------------------------------------------------------------------
 start-openbao: env-file configure-seal
-	@docker compose up -d openbao
 	@./scripts/orchestrator.py init-openbao
 
 stop-openbao:
-	@docker compose stop openbao
+	@./scripts/orchestrator.py stop-openbao
 
 restart-openbao:
-	@docker compose restart openbao
+	@./scripts/orchestrator.py restart-openbao
 
 init-openbao: env-file configure-seal
 	@./scripts/orchestrator.py init-openbao
 
 # ------------------------------------------------------------------------------
-# Boundary
-# ------------------------------------------------------------------------------
-start-boundary: env-file configure-seal init-postgres
-	@docker compose up -d boundary-controller boundary-worker
-
-stop-boundary:
-	@docker compose stop boundary-controller boundary-worker
-
-restart-boundary:
-	@docker compose restart boundary-controller boundary-worker
-
-init-boundary: env-file configure-seal init-postgres
-	@./scripts/orchestrator.py init-boundary
-
-# ------------------------------------------------------------------------------
 # Semaphore
 # ------------------------------------------------------------------------------
-start-semaphore: env-file init-postgres ensure-semaphore-db
-	@docker compose up -d semaphore
+start-semaphore: env-file configure-seal
+	@./scripts/orchestrator.py start-semaphore
 	@./scripts/orchestrator.py init-semaphore
 
 stop-semaphore:
-	@docker compose stop semaphore
+	@./scripts/orchestrator.py stop-semaphore
 
 restart-semaphore:
-	@docker compose restart semaphore
+	@./scripts/orchestrator.py restart-semaphore
 
 init-semaphore: env-file
 	@./scripts/orchestrator.py init-semaphore
-
-# ------------------------------------------------------------------------------
-# PostgreSQL
-# ------------------------------------------------------------------------------
-start-postgres init-postgres: env-file
-	@docker compose up -d postgres
-	@$(MAKE) wait-postgres
-
-stop-postgres:
-	@docker compose stop postgres
-
-restart-postgres:
-	@docker compose restart postgres
 
 # ------------------------------------------------------------------------------
 # Testing & Verification
@@ -147,4 +109,4 @@ test-e2e:
 	@pytest tests/ -v
 
 clean:
-	@docker compose down -v
+	@./scripts/orchestrator.py down

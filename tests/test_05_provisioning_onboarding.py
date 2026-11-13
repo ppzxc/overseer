@@ -12,7 +12,7 @@ def test_onboard_001_greenfield_baseline_workflow(root_dir):
     """
     [ONBOARD-001] Greenfield Server Baseline Provisioning Workflow
     Verifies that Greenfield onboarding is fully defined in guidelines and seeded into Semaphore:
-    1. Guideline defines baseline orchestration (Common, Security, SSH CA, Boundary, Monitoring)
+    1. Guideline defines baseline orchestration (Common, Security, SSH CA, Monitoring)
     2. Semaphore UI GitOps seeder registers 'Provision Target Servers' template
     3. OpenBao SSH CA public key integration point is configured
     """
@@ -53,7 +53,7 @@ def test_onboard_002_brownfield_migration_and_lockout_safety(root_dir):
     # 2. Semaphore UI Dry-Run 시뮬레이션 템플릿 검증
     init_script = root_dir / "scripts" / "init-semaphore.sh"
     init_content = init_script.read_text(encoding="utf-8")
-    assert "5. Dry-Run Check & Diff (Simulation)" in init_content, "Dry-run template must be seeded in Semaphore"
+    assert "3. Dry-Run Check & Diff (Simulation)" in init_content, "Dry-run template must be seeded in Semaphore"
     assert "--check --diff" in init_content, "Dry-run arguments must include --check --diff"
 
 
@@ -109,21 +109,17 @@ def test_onboard_001_greenfield_linux_user_and_ssh_ca_contract(root_dir):
     )
 
 
-def test_onboard_001_greenfield_boundary_and_monitoring_contract(root_dir):
+def test_onboard_001_greenfield_monitoring_contract(root_dir):
     """
-    [ONBOARD-001] Greenfield Target Node Boundary Zero-Trust & Observability Integration Verification
+    [ONBOARD-001] Greenfield Target Node Observability Integration Verification
     Verifies that:
-    1. Target host is integrated with Boundary Worker proxy (default port 9202)
-    2. OpenTelemetry Collector Contrib with hostmetrics receiver is deployed
+    1. OpenTelemetry Collector Contrib with hostmetrics receiver is deployed
     3. Time synchronization (Chrony) is enforced to ensure certificate timestamp validity
     """
     guideline_doc = root_dir / "docs" / "PROVISIONING_AND_MIGRATION_GUIDELINE.md"
     content = guideline_doc.read_text(encoding="utf-8")
 
-    # 1. Boundary target integration
-    assert "Boundary" in content, "Boundary Zero-Trust access must be integrated"
-
-    # 2. OpenTelemetry Collector Hostmetrics
+    # OpenTelemetry Collector Hostmetrics
     assert "hostmetrics" in content, "Hostmetrics receiver must be configured for system metrics"
     assert "OTLP" in content, "OTLP outbound export must be documented"
 
