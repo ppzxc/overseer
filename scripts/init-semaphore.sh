@@ -158,10 +158,8 @@ create_template_if_missing() {
 
 # 9. 주요 플레이북 템플릿 일괄 등록
 echo "[*] Seeding Ansible Task Templates..."
-create_template_if_missing "1. Provision Target Servers" "playbooks/provision_servers.yml" "Baseline provisioning for IDC target servers (SSH CA + Boundary + OTEL)" ""
-create_template_if_missing "2. Provision Overseer Control Plane" "playbooks/provision_overseer.yml" "Host setup for Overseer Control Plane node (Docker CE + Hardening)" ""
-create_template_if_missing "3. Provision Full Stack (All)" "playbooks/provision.yml" "Full-stack provisioning for all managed nodes and overseer host" ""
-create_template_if_missing "4. Regular Maintenance & Patching" "playbooks/maintenance.yml" "Routine OS security patching and telemetry agent update" ""
-create_template_if_missing "5. Dry-Run Check & Diff (Simulation)" "playbooks/provision.yml" "Dry-run simulation to preview changes without modifying servers" "--check --diff"
+create_template_if_missing "1. Provision Target Servers" "playbooks/provision_servers.yml" "Baseline provisioning for IDC target servers (OpenBao SSH CA + OTEL)" ""
+create_template_if_missing "2. Regular Maintenance & Patching" "playbooks/maintenance.yml" "Routine OS security patching and telemetry agent update" ""
+create_template_if_missing "3. Dry-Run Check & Diff (Simulation)" "playbooks/provision_servers.yml" "Dry-run simulation to preview changes without modifying servers" "--check --diff"
 
 echo "[+] Semaphore UI auto-seeding completed successfully!"

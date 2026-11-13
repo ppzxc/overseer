@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """
 Overseer Control Plane Lifecycle & Bootstrap Orchestrator
-Provides a deep, unified interface for full-stack service initialization,
-dependency-aware healthchecks, automated database migrations, pluggable SEAL/UNSEAL profiles,
-port exposure branching, external network bootstrapping, and manual/auto key management.
+Provides unified initialization for OpenBao and Semaphore, health checks,
+pluggable OpenBao seal profiles, port exposure, network bootstrapping, and key management.
 """
 
 import os
@@ -153,7 +152,7 @@ def run_preflight_checks(exit_on_failure=True):
 
     # 4. Filesystem Directory Writeability for Centralized DATA_DIR (/data)
     data_dir = get_configured_data_dir()
-    required_subs = ["postgres", "openbao", "semaphore", "boundary", "credentials"]
+    required_subs = ["openbao", "semaphore", "semaphore-db", "credentials"]
     try:
         data_dir.mkdir(parents=True, exist_ok=True)
         for sub in required_subs:
@@ -178,9 +177,6 @@ def run_preflight_checks(exit_on_failure=True):
     if expose_ports:
         ports_to_check = [
             (8200, "OpenBao Web / API"),
-            (9200, "Boundary Controller API"),
-            (9201, "Boundary Controller Cluster"),
-            (9202, "Boundary Worker Proxy"),
             (3000, "Semaphore Web UI"),
         ]
         running_containers_res = subprocess.run("docker compose ps -q", shell=True, capture_output=True, text=True, cwd=str(ROOT_DIR))
@@ -228,7 +224,7 @@ def run_preflight_checks(exit_on_failure=True):
 def ensure_env_file(interactive=False):
     """
     Ensures .env exists from .env.example with newly generated secure random keys.
-    Also guarantees all KMS/encryption keys and passwords in .env are non-empty and securely generated.
+    Also guarantees the Semaphore admin password and encryption key are generated.
     """
     env_file = ROOT_DIR / ".env"
     example = ROOT_DIR / ".env.example"
@@ -254,11 +250,7 @@ def ensure_env_file(interactive=False):
     if env_file.exists():
         env_vars = read_env_file(include_comments=False)
         
-        # 1. Generate passwords if default or empty
-        if env_vars.get("BOUNDARY_DATABASE_PASSWORD") in [None, "", "boundarypassword"]:
-            set_env_var("BOUNDARY_DATABASE_PASSWORD", generate_random_password(18), uncomment=True)
-        if env_vars.get("SEMAPHORE_DATABASE_PASSWORD") in [None, "", "semaphorepassword"]:
-            set_env_var("SEMAPHORE_DATABASE_PASSWORD", generate_random_password(18), uncomment=True)
+        # 1. Generate the administrator password if default or empty
         if env_vars.get("SEMAPHORE_ADMIN_PASSWORD") in [None, "", "semaphoreadmin"]:
             set_env_var("SEMAPHORE_ADMIN_PASSWORD", generate_random_password(18), uncomment=True)
             
@@ -269,18 +261,12 @@ def ensure_env_file(interactive=False):
             "uK382WKGvgcuEmhdREQBPBG5nhAAda4e+bQQnFRinCU=",
             "GS3py5Y8+GvF12x0fTfR18k2h4eE9W2d1C8N6Q8T4=0",
         ]
-        if env_vars.get("BOUNDARY_KMS_AEAD_ROOT_KEY") in [None, ""] + dummy_keys:
-            set_env_var("BOUNDARY_KMS_AEAD_ROOT_KEY", generate_base64_key(32), uncomment=True)
-        if env_vars.get("BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY") in [None, ""] + dummy_keys:
-            set_env_var("BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY", generate_base64_key(32), uncomment=True)
-        if env_vars.get("BOUNDARY_KMS_AEAD_RECOVERY_KEY") in [None, ""] + dummy_keys:
-            set_env_var("BOUNDARY_KMS_AEAD_RECOVERY_KEY", generate_base64_key(32), uncomment=True)
         if env_vars.get("SEMAPHORE_ACCESS_KEY_ENCRYPTION") in [None, ""] + dummy_keys:
             set_env_var("SEMAPHORE_ACCESS_KEY_ENCRYPTION", generate_base64_key(32), uncomment=True)
             
         # Reload into os.environ only if not already present in environment
         # (Exclude mode selector flags so dynamic/interactive selection is respected)
-        control_flags = {"KEY_MANAGEMENT_PROFILE", "SEAL_TYPE", "OPENBAO_SHAMIR_MODE", "BOUNDARY_AEAD_MODE", "EXPOSE_PORTS"}
+        control_flags = {"KEY_MANAGEMENT_PROFILE", "SEAL_TYPE", "OPENBAO_SHAMIR_MODE", "EXPOSE_PORTS"}
         fresh_vars = read_env_file(include_comments=False)
         for k, v in fresh_vars.items():
             if k not in os.environ and k not in control_flags:
@@ -371,9 +357,6 @@ def configure_port_binding(expose_ports=True):
     
     ports_map = {
         "OPENBAO_PORT_BINDING": "0.0.0.0:8200:8200",
-        "BOUNDARY_CONTROLLER_API_PORT": "0.0.0.0:9200:9200",
-        "BOUNDARY_CONTROLLER_CLUSTER_PORT": "0.0.0.0:9201:9201",
-        "BOUNDARY_WORKER_PROXY_PORT": "0.0.0.0:9202:9202",
         "SEMAPHORE_PORT_BINDING": "0.0.0.0:3000:3000",
     }
     
@@ -390,15 +373,6 @@ services:
   openbao:
     ports:
       - "${OPENBAO_PORT_BINDING:-0.0.0.0:8200:8200}"
-
-  boundary-controller:
-    ports:
-      - "${BOUNDARY_CONTROLLER_API_PORT:-0.0.0.0:9200:9200}"
-      - "${BOUNDARY_CONTROLLER_CLUSTER_PORT:-0.0.0.0:9201:9201}"
-
-  boundary-worker:
-    ports:
-      - "${BOUNDARY_WORKER_PROXY_PORT:-0.0.0.0:9202:9202}"
 
   semaphore:
     ports:
@@ -423,9 +397,6 @@ def ensure_runtime_keys_injected(interactive=True):
 
     env_vars = read_env_file()
     required_keys = [
-        ("BOUNDARY_KMS_AEAD_ROOT_KEY", "Boundary KMS Root Key (32-byte Base64)"),
-        ("BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY", "Boundary KMS Worker Auth Key (32-byte Base64)"),
-        ("BOUNDARY_KMS_AEAD_RECOVERY_KEY", "Boundary KMS Recovery Key (32-byte Base64)"),
         ("SEMAPHORE_ACCESS_KEY_ENCRYPTION", "Semaphore Access Key Encryption (32-byte Base64)"),
     ]
 
@@ -476,13 +447,11 @@ def prompt_and_configure_all(interactive=True):
     seal_type = get_configured_seal_type()
     expose_ports = os.getenv("EXPOSE_PORTS", "true").lower() != "false"
     shamir_mode = os.getenv("OPENBAO_SHAMIR_MODE", "auto").lower()
-    aead_mode = os.getenv("BOUNDARY_AEAD_MODE", "auto").lower()
     
     # Unified profile detection
     if "SEAL_TYPE" in os.environ and os.environ["SEAL_TYPE"].strip().lower() == "gcpkms":
         profile = "gcpkms"
-    elif ("OPENBAO_SHAMIR_MODE" in os.environ and os.environ["OPENBAO_SHAMIR_MODE"].strip().lower() == "manual") or \
-         ("BOUNDARY_AEAD_MODE" in os.environ and os.environ["BOUNDARY_AEAD_MODE"].strip().lower() == "manual"):
+    elif "OPENBAO_SHAMIR_MODE" in os.environ and os.environ["OPENBAO_SHAMIR_MODE"].strip().lower() == "manual":
         profile = "manual"
     elif "KEY_MANAGEMENT_PROFILE" in os.environ and os.environ["KEY_MANAGEMENT_PROFILE"].strip():
         profile = os.environ["KEY_MANAGEMENT_PROFILE"].strip().lower()
@@ -494,7 +463,7 @@ def prompt_and_configure_all(interactive=True):
             profile = env_profile.strip().lower()
         elif seal_type == "gcpkms":
             profile = "gcpkms"
-        elif shamir_mode == "manual" or aead_mode == "manual":
+        elif shamir_mode == "manual":
             profile = "manual"
         else:
             profile = "local"
@@ -506,7 +475,7 @@ def prompt_and_configure_all(interactive=True):
         
         # 1. Port Exposure Question
         print(f"{BOLD}1. Host Port Exposure Mode:{RESET}")
-        print("   [1] Bind ports to Host (0.0.0.0: 8200, 9200, 9201, 9202, 3000) [Default]")
+        print("   [1] Bind ports to Host (0.0.0.0: 8200, 3000) [Default]")
         print("   [2] Internal Only (No host port binding, communication via 'backend' network)")
         try:
             port_choice = input("Select [1/2] (default 1): ").strip()
@@ -535,15 +504,12 @@ def prompt_and_configure_all(interactive=True):
     if profile == "gcpkms":
         seal_type = "gcpkms"
         shamir_mode = os.getenv("OPENBAO_SHAMIR_MODE", "auto")
-        aead_mode = os.getenv("BOUNDARY_AEAD_MODE", "auto")
     elif profile == "manual":
         seal_type = "local"
         shamir_mode = "manual"
-        aead_mode = "manual"
     else:
         seal_type = "local"
         shamir_mode = "auto"
-        aead_mode = "auto"
 
     # Apply Port Binding & .env comments
     configure_port_binding(expose_ports)
@@ -551,7 +517,6 @@ def prompt_and_configure_all(interactive=True):
     # Save modes to .env and os.environ
     set_env_var("SEAL_TYPE", seal_type, uncomment=True)
     set_env_var("OPENBAO_SHAMIR_MODE", shamir_mode, uncomment=True)
-    set_env_var("BOUNDARY_AEAD_MODE", aead_mode, uncomment=True)
     set_env_var("KEY_MANAGEMENT_PROFILE", profile, uncomment=True)
     
     # Handle GCP KMS variables comment/uncomment (preserve existing values if in .env)
@@ -560,9 +525,6 @@ def prompt_and_configure_all(interactive=True):
         ("GCP_REGION", "asia-northeast3"),
         ("GCP_KEY_RING", "overseer-keyring"),
         ("GCP_OPENBAO_KEY", "openbao-seal-key"),
-        ("GCP_BOUNDARY_ROOT_KEY", "boundary-root-key"),
-        ("GCP_BOUNDARY_WORKER_AUTH_KEY", "boundary-worker-auth-key"),
-        ("GCP_BOUNDARY_RECOVERY_KEY", "boundary-recovery-key"),
         ("GOOGLE_APPLICATION_CREDENTIALS", ""),
     ]
     is_gcp = (seal_type == "gcpkms")
@@ -592,33 +554,8 @@ def prompt_and_configure_all(interactive=True):
         openbao_dst.write_text(content, encoding="utf-8")
         print(f"{GREEN}[+] Injected OpenBao profile: {openbao_profile} -> openbao/config/openbao.hcl{RESET}")
 
-    # Inject Boundary Controller config
-    bnd_ctrl_profile = "gcp-kms.hcl" if seal_type == "gcpkms" else "local-aead.hcl"
-    bnd_ctrl_src = ROOT_DIR / "boundary" / "config" / "profiles" / bnd_ctrl_profile
-    bnd_ctrl_dst = ROOT_DIR / "boundary" / "config" / "controller.hcl"
-    if bnd_ctrl_src.exists():
-        content = bnd_ctrl_src.read_text(encoding="utf-8")
-        for k, v in os.environ.items():
-            content = content.replace(f"${{{k}}}", v)
-        bnd_ctrl_dst.write_text(content, encoding="utf-8")
-        print(f"{GREEN}[+] Injected Boundary Controller profile: {bnd_ctrl_profile} -> boundary/config/controller.hcl{RESET}")
-
-    # Inject Boundary Worker config
-    bnd_worker_profile = "worker-gcp-kms.hcl" if seal_type == "gcpkms" else "worker-local-aead.hcl"
-    bnd_worker_src = ROOT_DIR / "boundary" / "config" / "profiles" / bnd_worker_profile
-    bnd_worker_dst = ROOT_DIR / "boundary" / "config" / "worker.hcl"
-    if bnd_worker_src.exists():
-        content = bnd_worker_src.read_text(encoding="utf-8")
-        for k, v in os.environ.items():
-            content = content.replace(f"${{{k}}}", v)
-        bnd_worker_dst.write_text(content, encoding="utf-8")
-        print(f"{GREEN}[+] Injected Boundary Worker profile: {bnd_worker_profile} -> boundary/config/worker.hcl{RESET}")
-
     # If Manual Mode is chosen: Display keys securely and completely wipe from .env
     if profile == "manual":
-        root_k = os.getenv("BOUNDARY_KMS_AEAD_ROOT_KEY") or env_vars.get("BOUNDARY_KMS_AEAD_ROOT_KEY") or generate_base64_key(32)
-        worker_k = os.getenv("BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY") or env_vars.get("BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY") or generate_base64_key(32)
-        recovery_k = os.getenv("BOUNDARY_KMS_AEAD_RECOVERY_KEY") or env_vars.get("BOUNDARY_KMS_AEAD_RECOVERY_KEY") or generate_base64_key(32)
         sem_k = os.getenv("SEMAPHORE_ACCESS_KEY_ENCRYPTION") or env_vars.get("SEMAPHORE_ACCESS_KEY_ENCRYPTION") or generate_base64_key(32)
 
         print(f"\n{BOLD}{YELLOW}================================================================================{RESET}")
@@ -626,80 +563,23 @@ def prompt_and_configure_all(interactive=True):
         print(f"{BOLD}{YELLOW} Please securely copy and store the master encryption keys below.               {RESET}")
         print(f"{BOLD}{YELLOW} These keys will now be COMPLETELY WIPED from .env and disk!                    {RESET}")
         print(f"--------------------------------------------------------------------------------")
-        print(f" BOUNDARY_KMS_AEAD_ROOT_KEY        : {root_k}")
-        print(f" BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY : {worker_k}")
-        print(f" BOUNDARY_KMS_AEAD_RECOVERY_KEY    : {recovery_k}")
         print(f" SEMAPHORE_ACCESS_KEY_ENCRYPTION   : {sem_k}")
         print(f"--------------------------------------------------------------------------------")
         print(f" (To restart containers later, export them in shell or enter interactively on make up)")
         print(f"================================================================================\n")
 
         # Keep values in os.environ for current running process
-        os.environ["BOUNDARY_KMS_AEAD_ROOT_KEY"] = root_k
-        os.environ["BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY"] = worker_k
-        os.environ["BOUNDARY_KMS_AEAD_RECOVERY_KEY"] = recovery_k
         os.environ["SEMAPHORE_ACCESS_KEY_ENCRYPTION"] = sem_k
 
         # Wipe keys from .env file on disk
-        set_env_var("BOUNDARY_KMS_AEAD_ROOT_KEY", "", uncomment=True)
-        set_env_var("BOUNDARY_KMS_AEAD_WORKER_AUTH_KEY", "", uncomment=True)
-        set_env_var("BOUNDARY_KMS_AEAD_RECOVERY_KEY", "", uncomment=True)
         set_env_var("SEMAPHORE_ACCESS_KEY_ENCRYPTION", "", uncomment=True)
 
     return {
         "seal_type": seal_type,
         "expose_ports": expose_ports,
         "shamir_mode": shamir_mode,
-        "aead_mode": aead_mode,
         "key_management_profile": profile
     }
-
-def check_postgres_ready(timeout=30):
-    """Waits for PostgreSQL to accept connections."""
-    print(f"{CYAN}[*] Waiting for PostgreSQL backend (service postgres)...{RESET}")
-    env_vars = read_env_file()
-    bnd_user = env_vars.get("BOUNDARY_DATABASE_USER", "boundary")
-    start = time.time()
-    while time.time() - start < timeout:
-        res = run_cmd(f"docker compose exec -T postgres pg_isready -U {bnd_user}", check=False, capture=True)
-        if res.returncode == 0:
-            print(f"{GREEN}[+] PostgreSQL is ready.{RESET}")
-            return True
-        time.sleep(1.5)
-    print(f"{RED}[-] PostgreSQL timed out after {timeout}s.{RESET}")
-    return False
-
-def ensure_postgres_databases():
-    """Ensures dedicated 'boundary' and 'semaphore' users and databases exist with strict least-privilege isolation."""
-    print(f"{CYAN}[*] Configuring separated PostgreSQL users and databases...{RESET}")
-    env_vars = read_env_file()
-    bnd_user = env_vars.get("BOUNDARY_DATABASE_USER", "boundary")
-    bnd_pass = env_vars.get("BOUNDARY_DATABASE_PASSWORD", "boundarypassword")
-    bnd_db = env_vars.get("BOUNDARY_DATABASE", "boundary")
-    
-    sem_user = env_vars.get("SEMAPHORE_DATABASE_USER", "semaphore")
-    sem_pass = env_vars.get("SEMAPHORE_DATABASE_PASSWORD", "semaphorepassword")
-    sem_db = env_vars.get("SEMAPHORE_DATABASE", "semaphore")
-
-    # 1. Ensure Semaphore user exists
-    check_user = run_cmd(f"docker compose exec -T postgres psql -U {bnd_user} -d {bnd_db} -tc \"SELECT 1 FROM pg_roles WHERE rolname = '{sem_user}'\"", check=False, capture=True)
-    if "1" not in check_user.stdout:
-        print(f"{CYAN}[*] Creating dedicated PostgreSQL user '{sem_user}'...{RESET}")
-        run_cmd(f"docker compose exec -T postgres psql -U {bnd_user} -d {bnd_db} -c \"CREATE USER {sem_user} WITH PASSWORD '{sem_pass}';\"", check=False)
-    else:
-        # Update password if changed
-        run_cmd(f"docker compose exec -T postgres psql -U {bnd_user} -d {bnd_db} -c \"ALTER USER {sem_user} WITH PASSWORD '{sem_pass}';\"", check=False)
-
-    # 2. Ensure Semaphore database exists and is owned by semaphore user
-    check_db = run_cmd(f"docker compose exec -T postgres psql -U {bnd_user} -d {bnd_db} -tc \"SELECT 1 FROM pg_database WHERE datname = '{sem_db}'\"", check=False, capture=True)
-    if "1" not in check_db.stdout:
-        print(f"{CYAN}[*] Creating dedicated PostgreSQL database '{sem_db}' owned by '{sem_user}'...{RESET}")
-        run_cmd(f"docker compose exec -T postgres psql -U {bnd_user} -d {bnd_db} -c \"CREATE DATABASE {sem_db} OWNER {sem_user};\"", check=False)
-        run_cmd(f"docker compose exec -T postgres psql -U {bnd_user} -d {bnd_db} -c \"GRANT ALL PRIVILEGES ON DATABASE {sem_db} TO {sem_user};\"", check=False)
-        print(f"{GREEN}[+] Created database '{sem_db}' with isolated owner '{sem_user}'.{RESET}")
-    else:
-        run_cmd(f"docker compose exec -T postgres psql -U {bnd_user} -d {bnd_db} -c \"GRANT ALL PRIVILEGES ON DATABASE {sem_db} TO {sem_user};\"", check=False)
-        print(f"{GREEN}[+] Database '{sem_db}' ready.{RESET}")
 
 def wait_for_container_running(service_name: str, timeout: int = 20) -> bool:
     """Waits until a Docker Compose service reaches 'running' state."""
@@ -711,13 +591,6 @@ def wait_for_container_running(service_name: str, timeout: int = 20) -> bool:
             return True
         time.sleep(1)
     return False
-
-def init_boundary():
-    """Initializes Boundary Database schema."""
-    ensure_runtime_keys_injected(interactive=True)
-    print(f"{CYAN}[*] Initializing Boundary Database Schema...{RESET}")
-    run_cmd("docker compose run --rm --entrypoint /bin/sh boundary-controller -c '/boundary/scripts/init-boundary.sh'", check=False)
-    print(f"{GREEN}[+] Boundary schema initialized.{RESET}")
 
 def init_openbao():
     """Initializes and unseals OpenBao, setting up SSH CA."""
@@ -791,20 +664,9 @@ def deploy_to_target(source_dir: Path, target_dir: Path, execute_bootstrap: bool
         shutil.copy2(source_dir / "openbao" / "scripts" / "init-openbao-ssh-ca.sh", target_dir / "openbao" / "scripts" / "init-openbao-ssh-ca.sh")
         (target_dir / "openbao" / "scripts" / "init-openbao-ssh-ca.sh").chmod(0o755)
 
-    # 3. Boundary configuration & scripts
-    (target_dir / "boundary" / "config").mkdir(parents=True, exist_ok=True)
-    (target_dir / "boundary" / "scripts").mkdir(parents=True, exist_ok=True)
-    
-    boundary_profiles_src = source_dir / "boundary" / "config" / "profiles"
-    if boundary_profiles_src.exists():
-        shutil.copytree(boundary_profiles_src, target_dir / "boundary" / "config" / "profiles", dirs_exist_ok=True)
-    if (source_dir / "boundary" / "config" / "controller.hcl").exists():
-        shutil.copy2(source_dir / "boundary" / "config" / "controller.hcl", target_dir / "boundary" / "config" / "controller.hcl")
-    if (source_dir / "boundary" / "config" / "worker.hcl").exists():
-        shutil.copy2(source_dir / "boundary" / "config" / "worker.hcl", target_dir / "boundary" / "config" / "worker.hcl")
-    if (source_dir / "boundary" / "scripts" / "init-boundary.sh").exists():
-        shutil.copy2(source_dir / "boundary" / "scripts" / "init-boundary.sh", target_dir / "boundary" / "scripts" / "init-boundary.sh")
-        (target_dir / "boundary" / "scripts" / "init-boundary.sh").chmod(0o755)
+    stale_boundary_config = target_dir / "boundary"
+    if stale_boundary_config.exists():
+        shutil.rmtree(stale_boundary_config)
 
     # 4. Operational Scripts
     (target_dir / "scripts").mkdir(parents=True, exist_ok=True)
@@ -880,19 +742,13 @@ def bootstrap(target_dir_param=None):
     # 0.2 Final Review & Customization in $EDITOR (vim) before starting containers
     prompt_edit_env_file(interactive=True)
     
-    # 1. Start Postgres & Wait
-    run_cmd("docker compose up -d postgres", check=True)
-    if not check_postgres_ready():
-        sys.exit(1)
-    ensure_postgres_databases()
-    
-    # 2. Init Boundary & OpenBao
-    init_boundary()
+    # 1. Initialize OpenBao
     init_openbao()
     
-    # 3. Start remaining services (Boundary & Semaphore)
-    print(f"{CYAN}[*] Starting Boundary Controller, Worker & Semaphore UI...{RESET}")
-    run_cmd("docker compose up -d boundary-controller boundary-worker semaphore", check=True)
+    # 2. Start the stack and remove containers for services removed from Compose.
+    # Existing bind-mounted PostgreSQL data is left untouched.
+    print(f"{CYAN}[*] Starting OpenBao & Semaphore UI...{RESET}")
+    run_cmd("docker compose up -d --remove-orphans openbao semaphore", check=True)
     
     # 4. Seed Semaphore
     init_semaphore()
@@ -900,22 +756,15 @@ def bootstrap(target_dir_param=None):
     print(f"\n{BOLD}{GREEN}================================================================================{RESET}")
     print(f"{BOLD}{GREEN}  Overseer Control Plane is UP and READY!                                      {RESET}")
     print(f"{BOLD}{GREEN}  - OpenBao Web UI:     http://localhost:8200                                   {RESET}")
-    print(f"{BOLD}{GREEN}  - Boundary Admin UI:  http://localhost:9200                                   {RESET}")
     print(f"{BOLD}{GREEN}  - Semaphore Web UI:   http://localhost:3000                                   {RESET}")
     print(f"{BOLD}{GREEN}================================================================================{RESET}\n")
 
 def check_service_status():
     """Detailed health check and status reporting across all control plane services."""
     print(f"\n{BOLD}Checking Overseer Control Plane Services Health...{RESET}\n")
-    env_vars = read_env_file()
-    bnd_user = env_vars.get("BOUNDARY_DATABASE_USER", "boundary")
-    
     services = [
-        ("1. PostgreSQL (5432)", f"docker compose exec -T postgres pg_isready -U {bnd_user}", "tcp"),
-        ("2. OpenBao API (8200)", "docker compose exec -T openbao bao status -address=http://127.0.0.1:8200", "cli"),
-        ("3. Boundary Controller (9200)", "curl -s http://127.0.0.1:9200/v1/health || docker compose exec -T boundary-controller /bin/sh -c 'curl -s http://127.0.0.1:9200/v1/health'", "http"),
-        ("4. Boundary Worker (9202)", "nc -z 127.0.0.1 9202 || docker compose exec -T boundary-worker /bin/sh -c 'nc -z 127.0.0.1 9202'", "tcp"),
-        ("5. Semaphore UI (3000)", "curl -s http://127.0.0.1:3000/api/ping || docker compose exec -T semaphore /bin/sh -c 'nc -z 127.0.0.1 3000'", "http"),
+        ("1. OpenBao API (8200)", "docker compose exec -T openbao bao status -address=http://127.0.0.1:8200", "cli"),
+        ("2. Semaphore UI (3000)", "curl -s http://127.0.0.1:3000/api/ping || docker compose exec -T semaphore /bin/sh -c 'nc -z 127.0.0.1 3000'", "http"),
     ]
     
     all_healthy = True
@@ -934,12 +783,11 @@ def check_service_status():
 
 def main():
     parser = argparse.ArgumentParser(description="Overseer Control Plane Lifecycle Orchestrator")
-    parser.add_argument("action", choices=["bootstrap", "up", "preflight", "status", "down", "init-postgres", "init-openbao", "init-boundary", "init-semaphore", "configure-seal", "deploy-target"], help="Action to perform")
+    parser.add_argument("action", choices=["bootstrap", "up", "preflight", "status", "down", "init-openbao", "init-semaphore", "configure-seal", "deploy-target"], help="Action to perform")
     parser.add_argument("--target-dir", default=None, help="Target production installation directory (default: /opt/services/overseer)")
     parser.add_argument("--seal-type", choices=["local", "gcpkms"], default=None, help="Force specific seal backend")
     parser.add_argument("--expose-ports", choices=["true", "false"], default=None, help="Expose ports to host")
     parser.add_argument("--shamir-mode", choices=["auto", "manual"], default=None, help="OpenBao shamir unseal mode")
-    parser.add_argument("--aead-mode", choices=["auto", "manual"], default=None, help="Boundary AEAD mode")
     
     args = parser.parse_args()
     
@@ -951,8 +799,6 @@ def main():
         os.environ["EXPOSE_PORTS"] = args.expose_ports
     if args.shamir_mode:
         os.environ["OPENBAO_SHAMIR_MODE"] = args.shamir_mode
-    if args.aead_mode:
-        os.environ["BOUNDARY_AEAD_MODE"] = args.aead_mode
 
     if args.action in ["bootstrap", "up"]:
         bootstrap(target_dir_param=args.target_dir)
@@ -967,13 +813,9 @@ def main():
     elif args.action == "status":
         sys.exit(check_service_status())
     elif args.action == "down":
-        run_cmd("docker compose down", check=True)
-    elif args.action == "init-postgres":
-        ensure_postgres_databases()
+        run_cmd("docker compose down --remove-orphans", check=True)
     elif args.action == "init-openbao":
         init_openbao()
-    elif args.action == "init-boundary":
-        init_boundary()
     elif args.action == "init-semaphore":
         init_semaphore()
 

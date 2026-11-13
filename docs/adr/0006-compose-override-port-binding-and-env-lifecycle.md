@@ -26,8 +26,6 @@
 - `make bootstrap` 또는 `orchestrator.py` 실행 시 `EXPOSE_PORTS=true`인 경우:
   - `compose.override.yml`을 동적으로 생성하여 `0.0.0.0:<port>:<port>` 1:1 바인딩을 주입합니다.
     - OpenBao: `0.0.0.0:8200:8200`
-    - Boundary Controller: `0.0.0.0:9200:9200`, `0.0.0.0:9201:9201`
-    - Boundary Worker: `0.0.0.0:9202:9202`
     - Semaphore UI: `0.0.0.0:3000:3000`
 - `EXPOSE_PORTS=false` (Internal only)인 경우:
   - `compose.override.yml` 파일을 삭제하여 호스트 포트 바인딩을 원천 차단합니다.

@@ -37,8 +37,7 @@ def test_ctrl_008_production_sync_file_matrix(root_dir, tmp_path):
     assert (target_dir / ".env.example").exists(), ".env.example must be in production target"
     assert (target_dir / "openbao" / "config").exists()
     assert (target_dir / "openbao" / "scripts" / "init-openbao-ssh-ca.sh").exists()
-    assert (target_dir / "boundary" / "config").exists()
-    assert (target_dir / "boundary" / "scripts" / "init-boundary.sh").exists()
+    assert not (target_dir / "boundary").exists(), "Boundary assets must not be copied"
     assert (target_dir / "scripts" / "orchestrator.py").exists()
     assert (target_dir / "scripts" / "init-semaphore.sh").exists()
     assert (target_dir / "scripts" / "healthcheck.sh").exists()

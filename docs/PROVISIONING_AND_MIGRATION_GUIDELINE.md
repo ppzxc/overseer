@@ -38,20 +38,20 @@
 
 ---
 
-### 2) Security (SSH 하드닝, 방화벽, Vault SSH CA)
+### 2) Security (SSH 하드닝, 방화벽, OpenBao SSH CA)
 
 #### [핵심 목표]
 - 루트 로그인 차단(`PermitRootLogin no`), 비밀번호 인증 비활성화(`PasswordAuthentication no`)
-- HCP Vault SSH CA 연동을 통한 단기 서명 인증서 기반 SSH 접근 활성화
+- OpenBao SSH CA 연동을 통한 단기 서명 인증서 기반 SSH 접근 활성화
 - UFW / Firewalld 호스트 방화벽 활성화 및 인바운드 최소화
 
 #### [신규 프로비저닝 가이드]
-- Vault SSH CA 키(`trusted-user-ca-keys.pem`) 배포 후 즉시 SSH 보안 하드닝 및 방화벽을 적용합니다.
+- OpenBao SSH CA 키(`trusted-user-ca-keys.pem`) 배포 후 즉시 SSH 보안 하드닝 및 방화벽을 적용합니다.
 
 #### [기존 머신 마이그레이션 주의사항 & 체크리스트 (★ 최고 위험 구간)]
 - [ ] **SSH 락아웃(Lockout) 방지 절차**:
-  - **절대 주의**: Vault SSH CA 연동 및 `infra-admin` SSH 키 접속 테스트가 완료되기 전에 `PasswordAuthentication no`를 먼저 적용하지 마십시오.
-  - 마이그레이션 1단계: Vault CA 등록 및 관리자 공개키 배포 -> 별도 세션에서 Vault 서명 키로 로그인 성공 확인 -> 2단계: 비밀번호 로그인 차단
+  - **절대 주의**: OpenBao SSH CA 연동 및 `infra-admin` SSH 키 접속 테스트가 완료되기 전에 `PasswordAuthentication no`를 먼저 적용하지 마십시오.
+  - 마이그레이션 1단계: OpenBao CA 등록 및 관리자 공개키 배포 -> 별도 세션에서 OpenBao 서명 키로 로그인 성공 확인 -> 2단계: 비밀번호 로그인 차단
 - [ ] **운영 포트 누락으로 인한 서비스 차단 방지 (방화벽)**:
   - 기존 서버에서 LISTEN 중인 모든 포트를 사전 수집:
     ```bash
@@ -90,7 +90,7 @@
 flowchart TD
     A[1단계: 사전 진단 & Host Vars 작성] --> B[2단계: Dry-Run 및 구문 검증]
     B --> C[3단계: Common & Monitoring 배포]
-    C --> D[4단계: Vault SSH CA 키 등록 & 접속 검증]
+    C --> D[4단계: OpenBao SSH CA 키 등록 & 접속 검증]
     D --> E[5단계: Security 하드닝 & 방화벽 적용]
     E --> F[6단계: 최종 서비스 헬스체크]
 ```
@@ -125,17 +125,17 @@ ansible-playbook -i inventory/hosts.yml playbooks/provision.yml \
 ansible-playbook -i inventory/hosts.yml playbooks/provision.yml \
   --limit legacy-web-01.idc.internal --tags "monitoring"
 
-# 3. Vault SSH CA 키 배포 (비밀번호 차단 전)
+# 3. OpenBao SSH CA 키 배포 (비밀번호 차단 전)
 ansible-playbook -i inventory/hosts.yml playbooks/provision.yml \
   --limit legacy-web-01.idc.internal --tags "vault"
 
-# 4. Vault 서명 키로 로그인 정상 동작 확인 후, 보안 하드닝 및 방화벽 적용
+# 4. OpenBao 서명 키로 로그인 정상 동작 확인 후, 보안 하드닝 및 방화벽 적용
 ansible-playbook -i inventory/hosts.yml playbooks/provision.yml \
-  --limit legacy-web-01.idc.internal --tags "security,boundary"
+  --limit legacy-web-01.idc.internal --tags "security"
 ```
 
 ### 4단계: 사후 검증
-1. Vault SSH Certificate 및 Boundary 세션으로 정상 접속 가능한지 확인
+1. OpenBao SSH Certificate로 정상 접속 가능한지 확인
 2. 호스트 방화벽 활성화 후 서비스 트래픽(HTTP/DB/내부 포트) 정상 통신 여부 확인
 3. Prometheus 대시보드(Grafana)에서 노드 메트릭 수집 확인
 
@@ -152,19 +152,18 @@ CentOS 6(레거시)부터 CentOS 7, 8, Rocky Linux 9, 10(최신)까지의 환경
 | **방화벽 도구** | `iptables` | `firewalld` (또는 `iptables`) | `firewalld` | `firewalld` (nftables 백엔드) |
 | **Init 시스템** | SysV init (`service`, `chkconfig`) | `systemd` | `systemd` | `systemd` |
 | **기본 Python 버젼** | Python 2.6 (Ansible 연결시 raw/python27 고려) | Python 2.7 (EPEL python36 권장) | Python 3.6+ | Python 3.9 ~ 3.12 |
-| **HCP Vault SSH CA** | ⚠️ **직접 지원 불가** (OpenSSH 5.3으로 `TrustedUserCAKeys` 미지원) | ✅ **완벽 지원** (OpenSSH 7.4) | ✅ **완벽 지원** (OpenSSH 8.0) | ✅ **완벽 지원** (OpenSSH 8.7+) |
-| **HashiCorp Boundary** | ✅ SSH Target 접속 지원 | ✅ SSH Target 접속 지원 | ✅ SSH Target 접속 지원 | ✅ SSH Target 접속 지원 |
+| **OpenBao SSH CA** | ⚠️ **직접 지원 불가** (OpenSSH 5.3으로 `TrustedUserCAKeys` 미지원) | ✅ **지원** (OpenSSH 7.4) | ✅ **지원** (OpenSSH 8.0) | ✅ **지원** (OpenSSH 8.7+) |
 | **Node Exporter** | ✅ 바이너리 수동/SysV 실행 가능 | ✅ Systemd 서비스 등록 | ✅ Systemd 서비스 등록 | ✅ Systemd 서비스 등록 |
 
 ### OS 버전별 특별 대응 지침:
 1. **CentOS 6 레거시 서버**:
-   - OpenSSH 5.3은 SSH Certificate Authority(`TrustedUserCAKeys`)를 지원하지 않으므로, Vault SSH CA 자동 주입 태스크가 자동 스킵됩니다.
+   - OpenSSH 5.3은 SSH Certificate Authority(`TrustedUserCAKeys`)를 지원하지 않으므로, OpenBao SSH CA 자동 주입 태스크가 자동 스킵됩니다.
    - 대체 방안: `infra-admin`의 정적 SSH Public Key를 배포하거나, OpenSSH를 상위 버전으로 별도 빌드/업그레이드해야 합니다.
    - YUM 레포지토리가 닫혀있으므로 플레이북의 `Fix EOL CentOS 6 / 7 Vault Repositories` 태스크를 통해 `vault.centos.org` 아카이브로 자동 전환됩니다.
 2. **CentOS 7 서버**:
-   - OpenSSH 7.4가 기본 탑재되어 있어 Vault SSH CA를 정상 지원합니다.
+   - OpenSSH 7.4가 기본 탑재되어 있어 OpenBao SSH CA를 지원합니다.
    - 공식 미러가 종료되었으므로 `vault.centos.org` 주소로 패키지를 설치합니다.
 3. **Rocky Linux 9 / 10 최신 서버**:
    - `dnf` 패키지 관리자 및 최신 `crypto-policies` 정책이 적용됩니다.
-   - Vault SSH CA 및 Boundary Target과 완벽 호환됩니다.
+   - OpenBao SSH CA를 지원합니다.
 

@@ -9,7 +9,7 @@ Overseer 컨트롤 플레인의 전체 테스트 프레임워크, 3단 정합성
 | 문서 | 대상 계층 | 핵심 도구 | 설명 |
 |---|---|---|---|
 | 📑 [3-Way Traceability Matrix](file:///home/ppzxc/projects/overseer/docs/tests/TRACEABILITY_MATRIX.md) | **전역 정합성** | `validate-specs.py` | 문서 ⟷ 코드 ⟷ 테스트 3단 100% 추적 매트릭스 리포트 (자동 생성) |
-| 🧪 [E2E 시스템 통합 테스트 가이드](file:///home/ppzxc/projects/overseer/docs/tests/E2E_TESTING_GUIDELINE.md) | **Full-Stack 시스템** | `pytest`, `requests` | OpenBao, Boundary, Semaphore UI, PostgreSQL 전체 컨트롤 플레인 E2E 검증 |
+| 🧪 [E2E 시스템 통합 테스트 가이드](E2E_TESTING_GUIDELINE.md) | **Control Plane** | `pytest`, `requests` | OpenBao와 Semaphore UI 및 SQLite 저장소 E2E 검증 |
 
 ---
 

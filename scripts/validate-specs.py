@@ -3,7 +3,7 @@
 Overseer Full-Stack 3-Way Traceability & Specification Validator
 Validates strict consistency across the entire Overseer repository:
   1. Specification Documents (docs/control-plane/*.md, docs/adr/*.md)
-  2. Infrastructure & Task Code (compose.yml, openbao/, boundary/, scripts/)
+  2. Infrastructure & Task Code (compose.yml, openbao/, scripts/)
   3. Automated Tests (tests/test_*.py)
 Generates: docs/tests/TRACEABILITY_MATRIX.md
 """
@@ -52,20 +52,17 @@ def extract_all_code_implementations():
     duplicates = []
     
     cp_mappings = {
-        "CTRL-001": ("PostgreSQL Database Backend Service", "compose.yml"),
+        "CTRL-001": ("Semaphore SQLite Persistent Storage", "compose.yml"),
         "CTRL-002": ("Overseer Bridge Network Isolation", "compose.yml"),
         "CTRL-003": ("Automated Full Stack Bootstrap", "Makefile"),
         "CTRL-004": ("Ansible Semaphore Web UI and Orchestrator service", "compose.yml"),
         "CTRL-005": ("Automated Semaphore Project and Template Seeding", "scripts/init-semaphore.sh"),
         "CTRL-006": ("Automated Pre-Flight Prerequisites Validator", "scripts/orchestrator.py"),
-        "CTRL-007": ("Pluggable Seal and KMS Backend Configuration Profiles", "scripts/orchestrator.py"),
+        "CTRL-007": ("OpenBao Seal and KMS Backend Configuration Profiles", "scripts/orchestrator.py"),
         "CTRL-008": ("Production Target Deployment and Backup-Ready Packaging", "scripts/orchestrator.py"),
         "BAO-CTRL-001": ("OpenBao Server Initialization and Unseal", "openbao/config/openbao.hcl"),
         "BAO-CTRL-002": ("OpenBao SSH CA Secrets Engine Mount", "openbao/scripts/init-openbao-ssh-ca.sh"),
         "BAO-CTRL-003": ("OpenBao SSH User Certificate Signing Role", "openbao/scripts/init-openbao-ssh-ca.sh"),
-        "BND-CTRL-001": ("Boundary Controller Database and API", "boundary/config/controller.hcl"),
-        "BND-CTRL-002": ("Boundary Cluster Communications", "boundary/config/controller.hcl"),
-        "BND-CTRL-003": ("Boundary Worker Proxy Gateway", "boundary/config/worker.hcl"),
         "ONBOARD-001": ("Greenfield Server Baseline Provisioning Workflow", "docs/PROVISIONING_AND_MIGRATION_GUIDELINE.md"),
         "ONBOARD-002": ("Brownfield Legacy Server 3-Stage Migration and Lockout Safety", "docs/PROVISIONING_AND_MIGRATION_GUIDELINE.md"),
     }
@@ -95,8 +92,8 @@ def generate_markdown_report(specs, code_items, test_mappings, errors):
     lines = [
         "# Overseer 3-Way Traceability Matrix (자동 생성)",
         "",
-        f"> **최종 검증 일시**: `{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}`  ",
-        f"> **검증 상태**: `{'✅ 100% PASS' if not errors else '❌ FAIL'}`  ",
+        f"> **최종 검증 일시**: `{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}`",
+        f"> **검증 상태**: `{'✅ 100% PASS' if not errors else '❌ FAIL'}`",
         f"> **스펙 총계**: `{len(specs)}` 개 (Control Plane: {sum(1 for s in specs.values() if s[2]=='Control Plane')}, Ansible: {sum(1 for s in specs.values() if s[2]=='Ansible Node')})",
         "",
         "---",

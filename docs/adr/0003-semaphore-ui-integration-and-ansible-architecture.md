@@ -1,5 +1,7 @@
 # 3. Semaphore UI Integration and Unified Ansible Orchestration Architecture
 
+> Control-plane service and database composition is superseded by ADR-0007.
+
 - **Status**: Accepted
 - **Date**: 2026-08-28
 - **Deciders**: Overseer Engineering Team & User
