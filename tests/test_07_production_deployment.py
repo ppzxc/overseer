@@ -25,6 +25,9 @@ def test_ctrl_008_production_sync_file_matrix(root_dir, tmp_path):
     import orchestrator
     
     target_dir = tmp_path / "overseer_prod"
+    stale_boundary_dir = target_dir / "boundary"
+    stale_boundary_dir.mkdir(parents=True)
+    (stale_boundary_dir / "local-data.txt").write_text("preserve existing target data", encoding="utf-8")
     
     # Run deployment sync to temporary target
     copied_files = orchestrator.deploy_to_target(source_dir=root_dir, target_dir=target_dir, execute_bootstrap=False)
@@ -37,7 +40,7 @@ def test_ctrl_008_production_sync_file_matrix(root_dir, tmp_path):
     assert (target_dir / ".env.example").exists(), ".env.example must be in production target"
     assert (target_dir / "openbao" / "config").exists()
     assert (target_dir / "openbao" / "scripts" / "init-openbao-ssh-ca.sh").exists()
-    assert not (target_dir / "boundary").exists(), "Boundary assets must not be copied"
+    assert (stale_boundary_dir / "local-data.txt").read_text(encoding="utf-8") == "preserve existing target data", "Deployment sync must preserve pre-existing target data"
     assert (target_dir / "scripts" / "orchestrator.py").exists()
     assert (target_dir / "scripts" / "init-semaphore.sh").exists()
     assert (target_dir / "scripts" / "healthcheck.sh").exists()

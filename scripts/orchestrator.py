@@ -664,10 +664,6 @@ def deploy_to_target(source_dir: Path, target_dir: Path, execute_bootstrap: bool
         shutil.copy2(source_dir / "openbao" / "scripts" / "init-openbao-ssh-ca.sh", target_dir / "openbao" / "scripts" / "init-openbao-ssh-ca.sh")
         (target_dir / "openbao" / "scripts" / "init-openbao-ssh-ca.sh").chmod(0o755)
 
-    stale_boundary_config = target_dir / "boundary"
-    if stale_boundary_config.exists():
-        shutil.rmtree(stale_boundary_config)
-
     # 4. Operational Scripts
     (target_dir / "scripts").mkdir(parents=True, exist_ok=True)
     for sc in ["orchestrator.py", "init-semaphore.sh", "healthcheck.sh"]:

@@ -28,6 +28,8 @@ make bootstrap
 
 `make bootstrap`은 설정을 확인하고 OpenBao와 Semaphore를 시작한 뒤 Semaphore의 GitOps 프로젝트와 템플릿을 시딩합니다. 기본 서비스 포트는 OpenBao `8200`, Semaphore `3000`입니다. 호스트에 포트를 열지 않으려면 `.env`에서 `EXPOSE_PORTS=false`를 설정합니다.
 
+시딩은 기존 `Overseer Infrastructure` 프로젝트에도 적용됩니다. 현재 유지하는 템플릿의 플레이북과 설정을 갱신하고, 이전 유지보수·드라이런 템플릿은 현재 이름과 플레이북으로 정리합니다. 폐기된 `Provision Overseer Control Plane` 및 `Provision Full Stack (All)` 템플릿은 제거합니다.
+
 주요 관리 명령:
 
 ```bash

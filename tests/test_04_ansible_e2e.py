@@ -46,8 +46,13 @@ def test_ctrl_005_gitops_seeding_contract(root_dir):
     ]
     for tpl in expected_templates:
         assert tpl in script_content, f"Template '{tpl}' must be seeded by init-semaphore.sh"
-    assert "Provision Overseer Control Plane" not in script_content
-    assert "Provision Full Stack (All)" not in script_content
+    assert "playbooks/provision_overseer.yml" not in script_content
+    assert "playbooks/provision.yml" not in script_content
+    assert 'select(.name == "2. Provision Overseer Control Plane" or .name == "3. Provision Full Stack (All)")' in script_content
+    assert "-X DELETE" in script_content, "Retired templates must be removed from existing projects"
+    assert "-X PUT" in script_content, "Existing templates must be reconciled to current settings"
+    assert "4. Regular Maintenance & Patching" in script_content, "Legacy maintenance templates must be renamed"
+    assert "5. Dry-Run Check & Diff (Simulation)" in script_content, "Legacy dry-run templates must be renamed"
     
     # 3. Dry-run 시뮬레이션 인자 검증
     assert "--check --diff" in script_content, "Dry-run template must pass --check --diff"

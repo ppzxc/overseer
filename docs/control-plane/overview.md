@@ -13,7 +13,7 @@ OpenBao는 로컬 Shamir 또는 GCP Cloud KMS Auto-Unseal을 지원합니다.
 | `CTRL-002` | `Overseer Bridge Network Isolation` | `compose.yml` | overseer-net 브릿지 네트워크 격리 |
 | `CTRL-003` | `Automated Full Stack Bootstrap` | `Makefile` | 원클릭 일괄 기동 및 헬스 대기 워크플로우 (`make up`, `make bootstrap`) |
 | `CTRL-004` | `Ansible Semaphore Web UI and Orchestrator service` | `compose.yml` | 포트 3000 UI 및 SQLite 백엔드 |
-| `CTRL-005` | `Automated Semaphore Project and Template Seeding` | `scripts/init-semaphore.sh` | Semaphore REST API 기반 프로젝트/인벤토리/플레이북 템플릿 자동 프로비저닝 |
+| `CTRL-005` | `Automated Semaphore Project and Template Seeding` | `scripts/init-semaphore.sh` | Semaphore REST API 기반 프로젝트/인벤토리/플레이북 템플릿 시딩 및 기존 템플릿 정합성 갱신 |
 | `CTRL-006` | `Automated Pre-Flight Prerequisites Validator` | `scripts/orchestrator.py` | 필수 CLI 도구, Docker 비루트 권한, 데이터 디렉토리 쓰기 권한, 포트 충돌 사전 검증 (`make preflight`) |
 | `CTRL-007` | `OpenBao Seal and KMS Backend Configuration Profiles` | `scripts/orchestrator.py` | Local Shamir 및 GCP Cloud KMS 프로파일 주입 (`make configure-seal`) |
 | `CTRL-008` | `Production Target Deployment and Backup-Ready Packaging` | `scripts/orchestrator.py` | Git/테스트/문서 제외 운영 필수 파일 선별 복제 및 배포 대상 디렉토리(`/opt/services/overseer`) 부트스트랩 |
