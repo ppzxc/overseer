@@ -28,6 +28,30 @@ class CheckResult(NamedTuple):
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 
+SERVICE_ENV_KEYS = {
+    "openbao": {
+        "DATA_DIR", "OPENBAO_COMPOSE_DIR", "OPENBAO_CONFIG_DIR", "OPENBAO_SCRIPTS_DIR",
+        "CURRENT_UID", "CURRENT_GID", "SEAL_TYPE", "OPENBAO_SHAMIR_MODE",
+        "KEY_MANAGEMENT_PROFILE", "BAO_ADDR", "BAO_DEV_ROOT_TOKEN_ID", "GCP_PROJECT",
+        "GCP_REGION", "GCP_KEY_RING", "GCP_OPENBAO_KEY", "GOOGLE_APPLICATION_CREDENTIALS",
+    },
+    "semaphore": {
+        "DATA_DIR", "SEMAPHORE_COMPOSE_DIR", "SEMAPHORE_CONFIG_DIR", "CURRENT_UID",
+        "CURRENT_GID", "EXPOSE_PORTS", "SEMAPHORE_PORT_BINDING", "SEMAPHORE_ADDR",
+        "SEMAPHORE_ADMIN", "SEMAPHORE_ADMIN_NAME", "SEMAPHORE_ADMIN_EMAIL",
+        "SEMAPHORE_ADMIN_PASSWORD", "SEMAPHORE_ACCESS_KEY_ENCRYPTION",
+        "ANSIBLE_REPO_URL", "ANSIBLE_REPO_BRANCH",
+    },
+}
+
+def get_service_env_file(service: str) -> Path:
+    """Return the service-specific secret/config file, outside production Compose folders."""
+    if service not in SERVICE_ENV_KEYS:
+        raise ValueError(f"Unknown service: {service}")
+    if ROOT_DIR.resolve() == Path("/opt/services/overseer"):
+        return Path("/data") / service / "config" / ".env"
+    return ROOT_DIR / service / ".env"
+
 if hasattr(os, "getuid") and hasattr(os, "getgid"):
     os.environ.setdefault("CURRENT_UID", str(os.getuid()))
     os.environ.setdefault("CURRENT_GID", str(os.getgid()))
@@ -35,26 +59,33 @@ else:
     os.environ.setdefault("CURRENT_UID", "1000")
     os.environ.setdefault("CURRENT_GID", "1000")
 
-def read_env_file(include_comments: bool = False, path=None) -> dict:
+def read_env_file(include_comments: bool = False, path=None, service=None) -> dict:
     """Parses .env file into a dictionary of key-value pairs."""
-    env_file = Path(path) if path else ROOT_DIR / ".env"
     env_vars = {}
-    if not env_file.exists():
-        return env_vars
-    for line in env_file.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line:
+    if path:
+        env_files = [Path(path)]
+    elif service:
+        env_files = [get_service_env_file(service)]
+    else:
+        # Read legacy root .env first during migration; module files take precedence.
+        env_files = [ROOT_DIR / ".env", *(get_service_env_file(name) for name in SERVICE_ENV_KEYS)]
+    for env_file in env_files:
+        if not env_file.exists():
             continue
-        if line.startswith("#"):
-            if include_comments:
-                stripped_comment = line.lstrip("#").strip()
-                if "=" in stripped_comment:
-                    k, v = stripped_comment.split("=", 1)
-                    env_vars[k.strip()] = v.strip().strip('"').strip("'")
-            continue
-        if "=" in line:
-            k, v = line.split("=", 1)
-            env_vars[k.strip()] = v.strip().strip('"').strip("'")
+        for line in env_file.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            if line.startswith("#"):
+                if include_comments:
+                    stripped_comment = line.lstrip("#").strip()
+                    if "=" in stripped_comment:
+                        k, v = stripped_comment.split("=", 1)
+                        env_vars[k.strip()] = v.strip().strip('"').strip("'")
+                continue
+            if "=" in line:
+                k, v = line.split("=", 1)
+                env_vars[k.strip()] = v.strip().strip('"').strip("'")
     return env_vars
 
 def get_configured_data_dir():
@@ -81,6 +112,20 @@ def generate_random_password(length=16):
     """Generates a cryptographically secure random alphanumeric password."""
     alphabet = string.ascii_letters + string.digits
     return "".join(secrets.choice(alphabet) for _ in range(length))
+
+def copy2_unless_same(source: Path, destination: Path):
+    """Copy a file while allowing production sync source and target roots to coincide."""
+    source = Path(source)
+    destination = Path(destination)
+    if source.resolve() != destination.resolve():
+        shutil.copy2(source, destination)
+
+def copytree_unless_same(source: Path, destination: Path):
+    """Merge a tree unless source and destination already identify the same directory."""
+    source = Path(source)
+    destination = Path(destination)
+    if source.resolve() != destination.resolve():
+        shutil.copytree(source, destination, dirs_exist_ok=True)
 
 # ANSI Colors
 GREEN = "\033[92m"
@@ -109,7 +154,7 @@ def get_service_compose_dir(service: str) -> Path:
     """Resolve a service Compose directory from the deployment .env or repository layout."""
     if service not in {"openbao", "semaphore"}:
         raise ValueError(f"Unknown or missing Compose service: {service}")
-    env_values = read_env_file()
+    env_values = read_env_file(service=service)
     configured_dir = env_values.get(f"{service.upper()}_COMPOSE_DIR")
     compose_dir = Path(configured_dir).expanduser() if configured_dir else ROOT_DIR / service
     if not compose_dir.is_absolute():
@@ -126,7 +171,7 @@ def compose_command(service: str, *arguments: str) -> str:
     command = [
         "docker", "compose",
         "--project-directory", str(compose_dir),
-        "--env-file", str(ROOT_DIR / ".env"),
+        "--env-file", str(get_service_env_file(service)),
         "-f", str(compose_file),
     ]
     override_file = compose_dir / "compose.override.yml"
@@ -257,32 +302,54 @@ def run_preflight_checks(exit_on_failure=True):
 
 def ensure_env_file(interactive=False):
     """
-    Ensures .env exists from .env.example with newly generated secure random keys.
-    Also guarantees the Semaphore admin password and encryption key are generated.
+    Ensures service-specific environment files exist and generates Semaphore secrets.
     """
-    env_file = ROOT_DIR / ".env"
-    example = ROOT_DIR / ".env.example"
-    
+    env_files = {service: (get_service_env_file(service), ROOT_DIR / service / ".env.example") for service in SERVICE_ENV_KEYS}
+    legacy_values = read_env_file(path=ROOT_DIR / ".env")
+    for service, (env_file, example) in env_files.items():
+        env_file.parent.mkdir(parents=True, exist_ok=True)
+        if not env_file.exists() and example.exists():
+            shutil.copy2(example, env_file)
+            env_file.chmod(0o600)
+        current = read_env_file(path=env_file)
+        migrated = {
+            key: legacy_values[key] for key in SERVICE_ENV_KEYS[service]
+            if key in legacy_values and (key not in current or current[key] == "")
+        }
+        if migrated:
+            current.update(migrated)
+            write_service_env(env_file, example, current)
+        for key, value in current.items():
+            if key not in os.environ and value:
+                os.environ[key] = value
+
+    legacy_env_file = ROOT_DIR / ".env"
+    if legacy_env_file.exists():
+        archive = ROOT_DIR / ".env.legacy"
+        if archive.exists():
+            archive = ROOT_DIR / f".env.legacy-{int(time.time())}"
+        legacy_env_file.chmod(0o600)
+        legacy_env_file.replace(archive)
+
+    env_file = get_service_env_file("semaphore")
     if env_file.exists() and interactive and sys.stdin.isatty():
         print(f"\n{BOLD}{YELLOW}================================================================================{RESET}")
-        print(f"{BOLD}{YELLOW}               Existing .env File Detected                                      {RESET}")
+        print(f"{BOLD}{YELLOW}               Existing Semaphore .env Detected                                {RESET}")
         print(f"{BOLD}{YELLOW}================================================================================{RESET}\n")
-        print(f" An existing {BOLD}.env{RESET} file was found.")
-        print(f" Resetting will regenerate fresh random credentials from the latest {BOLD}.env.example{RESET} template.")
+        print(f" An existing {BOLD}semaphore/.env{RESET} file was found.")
+        print(" Resetting regenerates Semaphore credentials from its module template.")
         try:
-            choice = input("Reset and regenerate .env to latest template? [y/N]: ").strip().lower()
+            choice = input("Reset and regenerate Semaphore .env? [y/N]: ").strip().lower()
             if choice in ["y", "yes"]:
                 env_file.unlink()
-                print(f"{GREEN}[+] Removed existing .env file. Regenerating from .env.example...{RESET}")
+                shutil.copy2(env_files["semaphore"][1], env_file)
+                env_file.chmod(0o600)
+                print(f"{GREEN}[+] Regenerated Semaphore module .env.{RESET}")
         except (EOFError, KeyboardInterrupt):
             pass
 
-    if not env_file.exists() and example.exists():
-        print(f"{CYAN}[*] Generating fresh .env with unique cryptographic keys...{RESET}")
-        shutil.copy2(example, env_file)
-        
     if env_file.exists():
-        env_vars = read_env_file(include_comments=False)
+        env_vars = read_env_file(include_comments=False, service="semaphore")
         
         # 1. Generate the administrator password if default or empty
         if env_vars.get("SEMAPHORE_ADMIN_PASSWORD") in [None, "", "semaphoreadmin"]:
@@ -308,25 +375,26 @@ def ensure_env_file(interactive=False):
 
 def prompt_edit_env_file(interactive=True):
     """
-    Offers to open and edit .env with $EDITOR (default vim) right before starting containers.
+    Offers to review both module environment files with $EDITOR before starting containers.
     """
-    env_file = ROOT_DIR / ".env"
-    if interactive and sys.stdin.isatty() and env_file.exists():
+    if interactive and sys.stdin.isatty():
         editor = os.getenv("EDITOR", "vim")
         print(f"\n{BOLD}{CYAN}================================================================================{RESET}")
-        print(f"{BOLD}{CYAN}                    Final .env Review & Customization                           {RESET}")
+        print(f"{BOLD}{CYAN}             Final Service Environment Review & Customization                   {RESET}")
         print(f"{BOLD}{CYAN}================================================================================{RESET}\n")
-        print(f" All configuration and credentials have been written to {BOLD}.env{RESET}.")
+        print("Review the OpenBao and Semaphore module environment files.")
         try:
-            choice = input(f"Would you like to review and edit .env using '{editor}' before starting containers? [y/N]: ").strip().lower()
+            choice = input(f"Review both module environment files using '{editor}'? [y/N]: ").strip().lower()
             if choice in ["y", "yes"]:
-                print(f"{CYAN}[*] Opening .env with {editor}...{RESET}")
-                subprocess.run([editor, str(env_file)])
-                print(f"{GREEN}[+] Completed editing .env.{RESET}")
-                # Reload env vars to process environment in case of edits
-                env_vars = read_env_file()
-                for k, v in env_vars.items():
-                    os.environ[k] = v
+                for service in SERVICE_ENV_KEYS:
+                    env_file = get_service_env_file(service)
+                    if not env_file.exists():
+                        continue
+                    print(f"{CYAN}[*] Opening {service} environment: {env_file}{RESET}")
+                    subprocess.run([editor, str(env_file)])
+                    for key, value in read_env_file(service=service).items():
+                        os.environ[key] = value
+                print(f"{GREEN}[+] Completed reviewing module environment files.{RESET}")
         except (EOFError, KeyboardInterrupt):
             print()
 
@@ -342,9 +410,15 @@ def set_env_var(key: str, value: str = None, uncomment: bool = True):
     Sets a variable in .env, either uncommented (KEY=value) or commented (# KEY=value).
     If value is None, preserves the existing value in .env while updating comment status.
     """
-    env_file = ROOT_DIR / ".env"
+    service = next((name for name, keys in SERVICE_ENV_KEYS.items() if key in keys), "semaphore")
+    env_file = get_service_env_file(service)
+    env_file.parent.mkdir(parents=True, exist_ok=True)
     if not env_file.exists():
-        return
+        example = ROOT_DIR / service / ".env.example"
+        if not example.exists():
+            return
+        shutil.copy2(example, env_file)
+        env_file.chmod(0o600)
     lines = env_file.read_text(encoding="utf-8").splitlines()
     new_lines = []
     found = False
@@ -378,6 +452,7 @@ def set_env_var(key: str, value: str = None, uncomment: bool = True):
             os.environ[key] = str(value)
             
     env_file.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+    env_file.chmod(0o600)
 
 def render_semaphore_port_override() -> str:
     """Return the optional host binding for Semaphore; OpenBao stays internal."""
@@ -386,6 +461,27 @@ def render_semaphore_port_override() -> str:
         "services:\n  semaphore:\n    ports:\n"
         '      - "${SEMAPHORE_PORT_BINDING:-0.0.0.0:3000:3000}"\n'
     )
+
+def write_service_env(env_file: Path, template_file: Path, values: dict):
+    """Write service values over a tracked template while preserving its comments."""
+    lines = template_file.read_text(encoding="utf-8").splitlines() if template_file.exists() else []
+    written = set()
+    rendered = []
+    for line in lines:
+        stripped = line.strip().lstrip("#").strip()
+        key = stripped.split("=", 1)[0].strip() if "=" in stripped else None
+        if key in values:
+            rendered.append(f"{key}={values[key]}")
+            written.add(key)
+        else:
+            rendered.append(line)
+    missing = [(key, value) for key, value in values.items() if key not in written]
+    if missing:
+        rendered.extend(["", "# Preserved deployment settings"])
+        rendered.extend(f"{key}={value}" for key, value in missing)
+    env_file.parent.mkdir(parents=True, exist_ok=True)
+    env_file.write_text("\n".join(rendered) + "\n", encoding="utf-8")
+    env_file.chmod(0o600)
 
 def configure_port_binding(expose_ports=True):
     """
@@ -710,13 +806,13 @@ def deploy_to_target(source_dir: Path, target_dir: Path, services_root: Optional
     target_dir.mkdir(parents=True, exist_ok=True)
 
     # 1. Top-level essential operational files
-    top_files = ["Makefile", "README.md", "CONTEXT.md", ".env.example"]
+    top_files = ["Makefile", "README.md", "CONTEXT.md"]
 
     for tf in top_files:
         src_f = source_dir / tf
         dst_f = target_dir / tf
         if src_f.exists():
-            shutil.copy2(src_f, dst_f)
+            copy2_unless_same(src_f, dst_f)
             print(f"{GREEN}[+] Copied: {tf}{RESET}")
 
     # Remove obsolete combined Compose entrypoints without touching service data.
@@ -726,43 +822,56 @@ def deploy_to_target(source_dir: Path, target_dir: Path, services_root: Optional
             stale_compose.unlink()
             print(f"{YELLOW}[-] Removed obsolete {obsolete_file}{RESET}")
 
-    target_env_path = target_dir / ".env"
-    target_env = read_env_file(path=target_env_path)
-    env_defaults = {
+    legacy_env_path = target_dir / ".env"
+    legacy_env = read_env_file(path=legacy_env_path) if legacy_env_path.exists() else {}
+    module_env_values = {}
+    for service in SERVICE_ENV_KEYS:
+        module_path = data_root / service / "config" / ".env"
+        existing = read_env_file(path=module_path) if module_path.exists() else {}
+        module_env_values[service] = {
+            key: legacy_env[key] for key in SERVICE_ENV_KEYS[service] if key in legacy_env
+        }
+        module_env_values[service].update({
+            key: value for key, value in existing.items()
+            if key in SERVICE_ENV_KEYS[service] and (value != "" or key not in module_env_values[service])
+        })
+    common_defaults = {
         "DATA_DIR": str(data_root),
-        "OPENBAO_COMPOSE_DIR": str(services_root / "openbao"),
-        "SEMAPHORE_COMPOSE_DIR": str(services_root / "semaphore"),
-        "OPENBAO_CONFIG_DIR": str(data_root / "openbao" / "config"),
-        "OPENBAO_SCRIPTS_DIR": str(target_dir / "openbao" / "scripts"),
-        "SEMAPHORE_CONFIG_DIR": str(data_root / "semaphore" / "config"),
         "CURRENT_UID": str(os.getuid()) if hasattr(os, "getuid") else "1000",
         "CURRENT_GID": str(os.getgid()) if hasattr(os, "getgid") else "1000",
     }
-    missing_env = {k: v for k, v in env_defaults.items() if not target_env.get(k)}
-    if target_env_path.exists() and missing_env:
-        with target_env_path.open("a", encoding="utf-8") as env_file:
-            if target_env_path.stat().st_size and not target_env_path.read_bytes().endswith(b"\n"):
-                env_file.write("\n")
-            env_file.write("\n# Overseer service and persistent storage paths\n")
-            for key, value in missing_env.items():
-                env_file.write(f"{key}={value}\n")
-        target_env.update(missing_env)
+    module_env_values["openbao"].update({
+        **common_defaults,
+        "OPENBAO_COMPOSE_DIR": str(services_root / "openbao"),
+        "OPENBAO_CONFIG_DIR": str(data_root / "openbao" / "config"),
+        "OPENBAO_SCRIPTS_DIR": str(target_dir / "openbao" / "scripts"),
+    })
+    module_env_values["semaphore"].update({
+        **common_defaults,
+        "SEMAPHORE_COMPOSE_DIR": str(services_root / "semaphore"),
+        "SEMAPHORE_CONFIG_DIR": str(data_root / "semaphore" / "config"),
+    })
 
     semaphore_override = target_dir / "semaphore.compose.override.yml"
-    if target_env.get("EXPOSE_PORTS", "false").lower() == "true":
+    if module_env_values["semaphore"].get("EXPOSE_PORTS", "false").lower() == "true":
         semaphore_override.write_text(render_semaphore_port_override(), encoding="utf-8")
     elif semaphore_override.exists():
         semaphore_override.unlink()
 
     # Each service directory in the production layout contains only compose.yml.
     for service in ("openbao", "semaphore"):
+        service_example = source_dir / service / ".env.example"
+        if service_example.exists():
+            example_target = target_dir / service / ".env.example"
+            example_target.parent.mkdir(parents=True, exist_ok=True)
+            copy2_unless_same(service_example, example_target)
         service_dir = services_root / service
         service_dir.mkdir(parents=True, exist_ok=True)
         compose_src = source_dir / service / "compose.yml"
         if not compose_src.exists():
             raise FileNotFoundError(f"Missing service Compose file: {compose_src}")
         compose_dst = service_dir / "compose.yml"
-        shutil.copy2(compose_src, compose_dst)
+        copy2_unless_same(compose_src, compose_dst)
         for child in service_dir.iterdir():
             if child.name == "compose.yml":
                 continue
@@ -772,8 +881,8 @@ def deploy_to_target(source_dir: Path, target_dir: Path, services_root: Optional
                 child.unlink()
 
     # 2. Persist service settings under /data, outside the service Compose folders.
-    openbao_config_dir = Path(target_env.get("OPENBAO_CONFIG_DIR", data_root / "openbao" / "config"))
-    semaphore_config_dir = Path(target_env.get("SEMAPHORE_CONFIG_DIR", data_root / "semaphore" / "config"))
+    openbao_config_dir = Path(module_env_values["openbao"]["OPENBAO_CONFIG_DIR"])
+    semaphore_config_dir = Path(module_env_values["semaphore"]["SEMAPHORE_CONFIG_DIR"])
     if not openbao_config_dir.is_absolute():
         openbao_config_dir = (services_root / "openbao" / openbao_config_dir).resolve()
     if not semaphore_config_dir.is_absolute():
@@ -781,11 +890,21 @@ def deploy_to_target(source_dir: Path, target_dir: Path, services_root: Optional
     openbao_config_dir.mkdir(parents=True, exist_ok=True)
     semaphore_config_dir.mkdir(parents=True, exist_ok=True)
 
+    for service, config_dir in (("openbao", openbao_config_dir), ("semaphore", semaphore_config_dir)):
+        module_path = config_dir / ".env"
+        write_service_env(module_path, source_dir / service / ".env.example", module_env_values[service])
+    if legacy_env_path.exists():
+        legacy_backup = target_dir / ".env.legacy"
+        if not legacy_backup.exists():
+            shutil.copy2(legacy_env_path, legacy_backup)
+            legacy_backup.chmod(0o600)
+        legacy_env_path.unlink()
+
     (target_dir / "openbao" / "scripts").mkdir(parents=True, exist_ok=True)
     openbao_profiles_src = source_dir / "openbao" / "config" / "profiles"
     if openbao_profiles_src.exists():
-        shutil.copytree(openbao_profiles_src, openbao_config_dir / "profiles", dirs_exist_ok=True)
-        shutil.copytree(openbao_profiles_src, target_dir / "openbao" / "config" / "profiles", dirs_exist_ok=True)
+        copytree_unless_same(openbao_profiles_src, openbao_config_dir / "profiles")
+        copytree_unless_same(openbao_profiles_src, target_dir / "openbao" / "config" / "profiles")
     openbao_hcl_src = source_dir / "openbao" / "config" / "openbao.hcl"
     if openbao_hcl_src.exists() and not (openbao_config_dir / "openbao.hcl").exists():
         shutil.copy2(openbao_hcl_src, openbao_config_dir / "openbao.hcl")
@@ -796,7 +915,7 @@ def deploy_to_target(source_dir: Path, target_dir: Path, services_root: Optional
     if requirements_src.exists():
         shutil.copy2(requirements_src, semaphore_config_dir / "requirements.txt")
     if (source_dir / "openbao" / "scripts" / "init-openbao-ssh-ca.sh").exists():
-        shutil.copy2(source_dir / "openbao" / "scripts" / "init-openbao-ssh-ca.sh", target_dir / "openbao" / "scripts" / "init-openbao-ssh-ca.sh")
+        copy2_unless_same(source_dir / "openbao" / "scripts" / "init-openbao-ssh-ca.sh", target_dir / "openbao" / "scripts" / "init-openbao-ssh-ca.sh")
         (target_dir / "openbao" / "scripts" / "init-openbao-ssh-ca.sh").chmod(0o755)
 
     # 4. Operational Scripts
@@ -805,7 +924,7 @@ def deploy_to_target(source_dir: Path, target_dir: Path, services_root: Optional
         src_sc = source_dir / "scripts" / sc
         dst_sc = target_dir / "scripts" / sc
         if src_sc.exists():
-            shutil.copy2(src_sc, dst_sc)
+            copy2_unless_same(src_sc, dst_sc)
             dst_sc.chmod(0o755)
             print(f"{GREEN}[+] Copied script: scripts/{sc}{RESET}")
 
@@ -813,7 +932,7 @@ def deploy_to_target(source_dir: Path, target_dir: Path, services_root: Optional
     if migration_guide.exists():
         guide_target = target_dir / "docs" / "control-plane" / migration_guide.name
         guide_target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(migration_guide, guide_target)
+        copy2_unless_same(migration_guide, guide_target)
         print(f"{GREEN}[+] Copied operational guide: docs/control-plane/{migration_guide.name}{RESET}")
 
     print(f"\n{BOLD}{GREEN}[+] Production operational files successfully deployed to {target_dir}!{RESET}\n")

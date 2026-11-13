@@ -36,7 +36,7 @@ SERVICES_ROOT ?= /opt/services
 DATA_ROOT ?= /data
 
 env-file:
-	@if [ ! -f .env ]; then ./scripts/orchestrator.py configure-seal >/dev/null 2>&1 || cp .env.example .env; fi
+	@./scripts/orchestrator.py configure-seal >/dev/null 2>&1
 
 configure-seal: env-file
 	@./scripts/orchestrator.py configure-seal

@@ -59,7 +59,8 @@ def test_ctrl_008_production_sync_file_matrix(root_dir, tmp_path, monkeypatch):
     assert (target_dir / "Makefile").exists(), "Makefile must be in production target"
     assert (target_dir / "README.md").exists(), "README.md must be in production target"
     assert (target_dir / "CONTEXT.md").exists(), "CONTEXT.md must be in production target"
-    assert (target_dir / ".env.example").exists(), ".env.example must be in production target"
+    assert (target_dir / "openbao" / ".env.example").exists()
+    assert (target_dir / "semaphore" / ".env.example").exists()
     assert (data_root / "openbao" / "config" / "openbao.hcl").exists()
     assert (data_root / "openbao" / "config" / "profiles" / "local-shamir.hcl").exists()
     assert (target_dir / "openbao" / "config" / "profiles" / "local-shamir.hcl").exists()
@@ -71,16 +72,22 @@ def test_ctrl_008_production_sync_file_matrix(root_dir, tmp_path, monkeypatch):
     assert (target_dir / "scripts" / "healthcheck.sh").exists()
     assert (target_dir / "scripts" / "migrate-semaphore-postgres-to-sqlite.py").exists()
     assert (target_dir / "docs" / "control-plane" / "semaphore-postgres-to-sqlite.md").exists()
-    env_after_sync = (target_dir / ".env").read_text(encoding="utf-8")
+    assert not (target_dir / ".env").exists(), "legacy shared .env must no longer be active"
+    assert (target_dir / ".env.legacy").exists(), "legacy shared .env must be retained for rollback"
+    env_after_sync = (data_root / "semaphore" / "config" / ".env").read_text(encoding="utf-8")
     assert "SEMAPHORE_ACCESS_KEY_ENCRYPTION=live-secret\n" in env_after_sync
-    assert "OPENBAO_COMPOSE_DIR=" + str(services_root) + "/openbao" in env_after_sync
     assert "SEMAPHORE_CONFIG_DIR=" + str(data_root) + "/semaphore/config" in env_after_sync
+    openbao_env_after_sync = (data_root / "openbao" / "config" / ".env").read_text(encoding="utf-8")
+    assert "OPENBAO_COMPOSE_DIR=" + str(services_root) + "/openbao" in openbao_env_after_sync
     monkeypatch.setattr(orchestrator, "ROOT_DIR", target_dir)
+    monkeypatch.setattr(orchestrator, "get_service_env_file", lambda service: data_root / service / "config" / ".env")
     command = orchestrator.compose_command("openbao", "ps")
     assert str(services_root / "openbao" / "compose.yml") in command
     assert str(services_root / "openbao") in command
+    assert str(data_root / "openbao" / "config" / ".env") in command
     semaphore_command = orchestrator.compose_command("semaphore", "ps")
     assert str(target_dir / "semaphore.compose.override.yml") in semaphore_command
+    assert str(data_root / "semaphore" / "config" / ".env") in semaphore_command
 
     # 2. Non-production / dev / test / git files MUST NOT exist in target
     assert not (target_dir / ".git").exists(), ".git directory must NOT be copied"

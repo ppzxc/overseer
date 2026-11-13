@@ -36,6 +36,7 @@ def test_ctrl_002_network_and_orchestration(root_dir):
     semaphore_content = semaphore_file.read_text()
     assert "name: app" in semaphore_content
     assert "${SEMAPHORE_CONFIG_DIR:-.}/requirements.txt:/etc/semaphore/requirements.txt" in semaphore_content
+    assert "~/.ssh" not in semaphore_content
     assert "${DATA_DIR:-/data}/semaphore/data:/var/lib/semaphore" in semaphore_content
     assert "json-file" in semaphore_content and "max-size: 20m" in semaphore_content and 'max-file: "3"' in semaphore_content
     assert "--remove-orphans" not in (root_dir / "scripts" / "orchestrator.py").read_text()

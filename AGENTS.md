@@ -26,8 +26,6 @@ overseer/
 ├── AGENTS.md                  # AI 및 엔지니어 협업 가이드 (본 문서)
 ├── CONTEXT.md                 # Overseer 도메인 컨텍스트
 ├── README.md                  # 프로젝트 통합 개요 및 빠른 시작 가이드
-├── compose.yml                # [메인] OpenBao 및 Semaphore 일괄 기동
-├── .env.example               # 환경 변수 템플릿 (토큰, GitOps URL, 데이터 경로)
 ├── Makefile                   # 원클릭 통합 제어 인터페이스 (make bootstrap, up, test 등)
 │
 ├── docs/                      # [전역 문서 저장소]
@@ -47,10 +45,15 @@ overseer/
 │   └── test_05_provisioning_onboarding.py
 │
 ├── openbao/                   # OpenBao 오픈소스 시크릿/SSH CA 설정 & 초기화
+│   ├── compose.yml            # OpenBao Compose 모듈
+│   ├── .env.example           # OpenBao 모듈 환경 템플릿
 │   ├── config/openbao.hcl     # OpenBao 서버 설정 (Raft storage, TCP Listener, UI)
 │   ├── policies/              # OpenBao ACL 정책 정의
 │   └── scripts/               # SSH CA 엔진 활성화 및 역할 등록 스크립트
 │
+├── semaphore/                 # Semaphore Compose 및 환경 템플릿
+│   ├── compose.yml
+│   └── .env.example
 └── scripts/                   # 중앙 헬스체크 및 GitOps 시딩
     ├── init-semaphore.sh      # Semaphore UI GitOps 프로젝트/템플릿 자동 시딩
     ├── healthcheck.sh         # 각 컴포넌트 헬스체크

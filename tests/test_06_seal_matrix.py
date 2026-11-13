@@ -40,6 +40,7 @@ def test_ctrl_007_orchestrator_seal_and_port_branching(root_dir):
     os.environ["SEAL_TYPE"] = "local"
     os.environ["EXPOSE_PORTS"] = "true"
     os.environ["OPENBAO_SHAMIR_MODE"] = "auto"
+    os.environ["KEY_MANAGEMENT_PROFILE"] = "local"
     
     res = orchestrator.prompt_and_configure_all(interactive=False)
     assert res["seal_type"] == "local"
@@ -57,11 +58,12 @@ def test_ctrl_007_orchestrator_seal_and_port_branching(root_dir):
     assert semaphore_override.exists(), "Semaphore override should be generated when EXPOSE_PORTS=true"
     assert "0.0.0.0:3000:3000" in semaphore_override.read_text(encoding="utf-8")
     
-    env_content = (root_dir / ".env").read_text(encoding="utf-8")
-    assert "SEMAPHORE_PORT_BINDING=0.0.0.0:3000:3000" in env_content
-    assert "OPENBAO_SHAMIR_MODE=auto" in env_content
+    semaphore_env = (root_dir / "semaphore" / ".env").read_text(encoding="utf-8")
+    openbao_env = (root_dir / "openbao" / ".env").read_text(encoding="utf-8")
+    assert "SEMAPHORE_PORT_BINDING=0.0.0.0:3000:3000" in semaphore_env
+    assert "OPENBAO_SHAMIR_MODE=auto" in openbao_env
     # When SEAL_TYPE=local, GCP keys should remain commented
-    assert "# GCP_PROJECT=" in env_content
+    assert "# GCP_PROJECT=" in openbao_env
     
     # 2. Test GCP Cloud KMS + Internal Ports + Manual Shamir
     os.environ["SEAL_TYPE"] = "gcpkms"
@@ -85,12 +87,13 @@ def test_ctrl_007_orchestrator_seal_and_port_branching(root_dir):
     assert not openbao_override.exists(), "OpenBao override should be removed when EXPOSE_PORTS=false"
     assert not semaphore_override.exists(), "Semaphore override should be removed when EXPOSE_PORTS=false"
     
-    env_content_internal = (root_dir / ".env").read_text(encoding="utf-8")
-    assert "EXPOSE_PORTS=false" in env_content_internal
+    semaphore_env_internal = (root_dir / "semaphore" / ".env").read_text(encoding="utf-8")
+    openbao_env_internal = (root_dir / "openbao" / ".env").read_text(encoding="utf-8")
+    assert "EXPOSE_PORTS=false" in semaphore_env_internal
     # When ports are not exposed, port binding variables should be commented out
-    assert "OPENBAO_SHAMIR_MODE=manual" in env_content_internal
+    assert "OPENBAO_SHAMIR_MODE=manual" in openbao_env_internal
     # When SEAL_TYPE=gcpkms, GCP keys should be uncommented
-    assert "GCP_PROJECT=test-proj" in env_content_internal
+    assert "GCP_PROJECT=test-proj" in openbao_env_internal
     
     # Revert back to local + exposed for standard testing
     os.environ["SEAL_TYPE"] = "local"
@@ -133,11 +136,11 @@ def test_ctrl_007_manual_mode_zero_knowledge_wipe(root_dir):
     assert os.getenv("SEMAPHORE_ACCESS_KEY_ENCRYPTION"), "Semaphore key should be generated in memory"
     
     # 3. Verify .env file on disk has NO keys (completely wiped for zero-knowledge)
-    env_content = (root_dir / ".env").read_text(encoding="utf-8")
+    env_content = (root_dir / "semaphore" / ".env").read_text(encoding="utf-8")
     assert "SEMAPHORE_ACCESS_KEY_ENCRYPTION=\n" in env_content or "SEMAPHORE_ACCESS_KEY_ENCRYPTION=\"\"" in env_content or "SEMAPHORE_ACCESS_KEY_ENCRYPTION=" in env_content
     
     # Parse env directly and assert they are empty string in .env
-    env_vars = orchestrator.read_env_file()
+    env_vars = orchestrator.read_env_file(service="semaphore")
     assert env_vars.get("SEMAPHORE_ACCESS_KEY_ENCRYPTION") == "", "SEMAPHORE_ACCESS_KEY_ENCRYPTION must be empty in .env"
 
 def test_ctrl_007_reboot_injection_support(root_dir):

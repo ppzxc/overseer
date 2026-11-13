@@ -18,7 +18,7 @@ services:
       SEMAPHORE_ADMIN_NAME: ${SEMAPHORE_ADMIN_NAME:-Admin}
       SEMAPHORE_ADMIN_EMAIL: ${SEMAPHORE_ADMIN_EMAIL:-admin@overseer.local}
       SEMAPHORE_ADMIN_PASSWORD: ${SEMAPHORE_ADMIN_PASSWORD:-semaphoreadmin}
-      SEMAPHORE_ACCESS_KEY_ENCRYPTION: ${SEMAPHORE_ACCESS_KEY_ENCRYPTION:?Set a valid base64 key in .env before starting Semaphore}
+      SEMAPHORE_ACCESS_KEY_ENCRYPTION: ${SEMAPHORE_ACCESS_KEY_ENCRYPTION:?Set a valid base64 key in the Semaphore module environment before starting Semaphore}
       ANSIBLE_HOST_KEY_CHECKING: "False"
       BAO_ADDR: http://openbao:8200
     volumes:
@@ -26,7 +26,6 @@ services:
       - ${DATA_DIR:-/data}/semaphore/work:/tmp/semaphore
       - ${DATA_DIR:-/data}/network-backups:/var/backups
       - ${DATA_DIR:-/data}/openbao/data:/openbao/data:ro
-      - ~/.ssh:/root/.ssh:ro
       - ${SEMAPHORE_CONFIG_DIR:-.}/requirements.txt:/etc/semaphore/requirements.txt:ro
     networks:
       - backend
