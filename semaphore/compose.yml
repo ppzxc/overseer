@@ -1,0 +1,48 @@
+name: app
+
+services:
+  semaphore:
+    image: semaphoreui/semaphore:v2.19.12
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1.5'
+          memory: 4G
+        reservations:
+          memory: 256M
+    environment:
+      SEMAPHORE_DB_DIALECT: sqlite
+      SEMAPHORE_DB_PATH: /var/lib/semaphore
+      SEMAPHORE_ADMIN: ${SEMAPHORE_ADMIN:-admin}
+      SEMAPHORE_ADMIN_NAME: ${SEMAPHORE_ADMIN_NAME:-Admin}
+      SEMAPHORE_ADMIN_EMAIL: ${SEMAPHORE_ADMIN_EMAIL:-admin@overseer.local}
+      SEMAPHORE_ADMIN_PASSWORD: ${SEMAPHORE_ADMIN_PASSWORD:-semaphoreadmin}
+      SEMAPHORE_ACCESS_KEY_ENCRYPTION: ${SEMAPHORE_ACCESS_KEY_ENCRYPTION:?Set a valid base64 key in .env before starting Semaphore}
+      ANSIBLE_HOST_KEY_CHECKING: "False"
+      BAO_ADDR: http://openbao:8200
+    volumes:
+      - ${DATA_DIR:-/data}/semaphore-db:/var/lib/semaphore
+      - ${DATA_DIR:-/data}/semaphore:/tmp/semaphore
+      - ${DATA_DIR:-/data}/network-backups:/var/backups
+      - ${DATA_DIR:-/data}/openbao:/openbao/data:ro
+      - ~/.ssh:/root/.ssh:ro
+      - ./semaphore/requirements.txt:/etc/semaphore/requirements.txt:ro
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 3000 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: "3"
+
+networks:
+  backend:
+    external: true
+    name: backend

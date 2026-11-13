@@ -1,0 +1,43 @@
+name: app
+
+services:
+  openbao:
+    image: ghcr.io/openbao/openbao:2.6.2
+    user: "${CURRENT_UID:-1000}:${CURRENT_GID:-1000}"
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          memory: 128M
+    cap_add:
+      - IPC_LOCK
+    environment:
+      BAO_ADDR: "http://0.0.0.0:8200"
+      BAO_API_ADDR: "http://127.0.0.1:8200"
+      OPENBAO_SHAMIR_MODE: ${OPENBAO_SHAMIR_MODE:-auto}
+    volumes:
+      - ./openbao/config:/openbao/config:ro
+      - ${DATA_DIR:-/data}/openbao:/openbao/data
+      - ./openbao/scripts:/openbao/scripts:ro
+    entrypoint: ["bao", "server", "-config=/openbao/config/openbao.hcl"]
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD", "bao", "status", "-address=http://127.0.0.1:8200"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: "3"
+
+networks:
+  backend:
+    external: true
+    name: backend

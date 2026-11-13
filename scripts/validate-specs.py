@@ -3,7 +3,7 @@
 Overseer Full-Stack 3-Way Traceability & Specification Validator
 Validates strict consistency across the entire Overseer repository:
   1. Specification Documents (docs/control-plane/*.md, docs/adr/*.md)
-  2. Infrastructure & Task Code (compose.yml, openbao/, scripts/)
+  2. Infrastructure & Task Code (openbao/compose.yml, semaphore/compose.yml, scripts/)
   3. Automated Tests (tests/test_*.py)
 Generates: docs/tests/TRACEABILITY_MATRIX.md
 """
@@ -52,14 +52,15 @@ def extract_all_code_implementations():
     duplicates = []
     
     cp_mappings = {
-        "CTRL-001": ("Semaphore SQLite Persistent Storage", "compose.yml"),
-        "CTRL-002": ("Overseer Bridge Network Isolation", "compose.yml"),
+        "CTRL-001": ("Semaphore SQLite Persistent Storage", "semaphore/compose.yml"),
+        "CTRL-002": ("Overseer Bridge Network Isolation", "openbao/compose.yml"),
         "CTRL-003": ("Automated Full Stack Bootstrap", "Makefile"),
-        "CTRL-004": ("Ansible Semaphore Web UI and Orchestrator service", "compose.yml"),
+        "CTRL-004": ("Ansible Semaphore Web UI and Orchestrator service", "semaphore/compose.yml"),
         "CTRL-005": ("Automated Semaphore Project and Template Seeding", "scripts/init-semaphore.sh"),
         "CTRL-006": ("Automated Pre-Flight Prerequisites Validator", "scripts/orchestrator.py"),
         "CTRL-007": ("OpenBao Seal and KMS Backend Configuration Profiles", "scripts/orchestrator.py"),
         "CTRL-008": ("Production Target Deployment and Backup-Ready Packaging", "scripts/orchestrator.py"),
+        "CTRL-009": ("Semaphore PostgreSQL to SQLite Data Migration", "scripts/migrate-semaphore-postgres-to-sqlite.py"),
         "BAO-CTRL-001": ("OpenBao Server Initialization and Unseal", "openbao/config/openbao.hcl"),
         "BAO-CTRL-002": ("OpenBao SSH CA Secrets Engine Mount", "openbao/scripts/init-openbao-ssh-ca.sh"),
         "BAO-CTRL-003": ("OpenBao SSH User Certificate Signing Role", "openbao/scripts/init-openbao-ssh-ca.sh"),

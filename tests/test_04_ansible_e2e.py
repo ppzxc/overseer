@@ -12,12 +12,12 @@ from pathlib import Path
 
 def test_ctrl_004_semaphore_service_definition(root_dir):
     """[CTRL-004] Semaphore UI container definition and persistent SQLite backend."""
-    compose_file = root_dir / "compose.yml"
+    compose_file = root_dir / "semaphore" / "compose.yml"
     assert compose_file.exists(), "compose.yml is missing"
     compose_content = compose_file.read_text(encoding="utf-8")
     
     # 1. Semaphore 서비스 및 포트 정의 검증
-    assert "semaphore:" in compose_content, "semaphore service must be defined in compose.yml"
+    assert "semaphore:" in compose_content, "semaphore service must be defined in semaphore/compose.yml"
     assert "image: semaphoreui/semaphore:" in compose_content, "Semaphore image must be configured"
     assert "nc -z 127.0.0.1 3000" in compose_content or "3000" in compose_content, "Semaphore port 3000 must be configured"
     assert "SEMAPHORE_DB_DIALECT: sqlite" in compose_content, "SQLite dialect must be configured"

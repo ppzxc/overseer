@@ -50,15 +50,14 @@ def test_ctrl_007_orchestrator_seal_and_port_branching(root_dir):
     assert 'storage "raft"' in active_openbao
     assert 'seal "gcpckms"' not in active_openbao
     
-    # Check compose.override.yml exists and has 0.0.0.0 bindings
-    override_file = root_dir / "compose.override.yml"
-    assert override_file.exists(), "compose.override.yml should be generated when EXPOSE_PORTS=true"
-    override_content = override_file.read_text(encoding="utf-8")
-    assert "0.0.0.0:8200:8200" in override_content
-    assert "0.0.0.0:3000:3000" in override_content
+    # Only Semaphore gets a host binding; OpenBao stays internal to backend.
+    openbao_override = root_dir / "openbao" / "compose.override.yml"
+    semaphore_override = root_dir / "semaphore" / "compose.override.yml"
+    assert not openbao_override.exists(), "OpenBao must remain internal when EXPOSE_PORTS=true"
+    assert semaphore_override.exists(), "Semaphore override should be generated when EXPOSE_PORTS=true"
+    assert "0.0.0.0:3000:3000" in semaphore_override.read_text(encoding="utf-8")
     
     env_content = (root_dir / ".env").read_text(encoding="utf-8")
-    assert "OPENBAO_PORT_BINDING=0.0.0.0:8200:8200" in env_content
     assert "SEMAPHORE_PORT_BINDING=0.0.0.0:3000:3000" in env_content
     assert "OPENBAO_SHAMIR_MODE=auto" in env_content
     # When SEAL_TYPE=local, GCP keys should remain commented
@@ -82,13 +81,13 @@ def test_ctrl_007_orchestrator_seal_and_port_branching(root_dir):
     assert 'seal "gcpckms"' in active_openbao_gcp
     assert 'project     = "test-proj"' in active_openbao_gcp
     
-    # When EXPOSE_PORTS=false, compose.override.yml should be deleted
-    assert not override_file.exists(), "compose.override.yml should be removed when EXPOSE_PORTS=false"
+    # When EXPOSE_PORTS=false, both service overrides should be deleted.
+    assert not openbao_override.exists(), "OpenBao override should be removed when EXPOSE_PORTS=false"
+    assert not semaphore_override.exists(), "Semaphore override should be removed when EXPOSE_PORTS=false"
     
     env_content_internal = (root_dir / ".env").read_text(encoding="utf-8")
     assert "EXPOSE_PORTS=false" in env_content_internal
     # When ports are not exposed, port binding variables should be commented out
-    assert "# OPENBAO_PORT_BINDING=" in env_content_internal
     assert "OPENBAO_SHAMIR_MODE=manual" in env_content_internal
     # When SEAL_TYPE=gcpkms, GCP keys should be uncommented
     assert "GCP_PROJECT=test-proj" in env_content_internal
@@ -110,8 +109,8 @@ def test_ctrl_007_openbao_init_script_unseal_branching(root_dir):
     assert "sys/seal-status" in init_script, "seal-status checking missing in init-openbao-ssh-ca.sh"
     
     # Verify Compose and Orchestrator bindings
-    compose_content = (root_dir / "compose.yml").read_text(encoding="utf-8")
-    assert "OPENBAO_SHAMIR_MODE:" in compose_content, "OPENBAO_SHAMIR_MODE missing from compose.yml"
+    compose_content = (root_dir / "openbao" / "compose.yml").read_text(encoding="utf-8")
+    assert "OPENBAO_SHAMIR_MODE:" in compose_content, "OPENBAO_SHAMIR_MODE missing from openbao/compose.yml"
     
     orchestrator_code = (root_dir / "scripts" / "orchestrator.py").read_text(encoding="utf-8")
     assert "OPENBAO_SHAMIR_MODE=" in orchestrator_code, "OPENBAO_SHAMIR_MODE propagation missing in orchestrator.py"

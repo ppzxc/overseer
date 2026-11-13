@@ -9,8 +9,7 @@ help:
 	@echo "                      Overseer Infrastructure Control Plane                     "
 	@echo "================================================================================"
 	@echo "  make preflight                - Run pre-flight checks (tools, permissions, ports)"
-	@echo "  make up / bootstrap           - Start & bootstrap all Control Plane components"
-	@echo "                                  (supports TARGET_DIR=/opt/services/overseer)"
+	@echo "  make up / bootstrap           - Start and initialize both service Compose projects"
 	@echo "  make production-sync          - Sync only production-critical operational files"
 	@echo "  make configure-seal           - Apply KMS seal/unseal profile (local / gcpkms)"
 	@echo "  make down                     - Stop all Control Plane components"
@@ -41,41 +40,41 @@ configure-seal: env-file
 	@./scripts/orchestrator.py configure-seal
 
 # ------------------------------------------------------------------------------
-# Full Stack (Unified)
+# Local Bootstrap and Production File Sync
 # ------------------------------------------------------------------------------
 preflight:
 	@./scripts/orchestrator.py preflight
 
 up bootstrap: env-file
-	@./scripts/orchestrator.py bootstrap $(TARGET_FLAG)
+	@./scripts/orchestrator.py bootstrap
 
 production-sync: env-file
 	@./scripts/orchestrator.py deploy-target $(TARGET_FLAG)
 
 down:
-	@docker compose down --remove-orphans
+	@./scripts/orchestrator.py down
 
 restart:
-	@docker compose restart
+	@./scripts/orchestrator.py restart-openbao
+	@./scripts/orchestrator.py restart-semaphore
 
 status:
 	@./scripts/orchestrator.py status
 
 logs:
-	@docker compose logs -f
+	@./scripts/orchestrator.py logs
 
 # ------------------------------------------------------------------------------
 # OpenBao
 # ------------------------------------------------------------------------------
 start-openbao: env-file configure-seal
-	@docker compose up -d --remove-orphans openbao
 	@./scripts/orchestrator.py init-openbao
 
 stop-openbao:
-	@docker compose stop openbao
+	@./scripts/orchestrator.py stop-openbao
 
 restart-openbao:
-	@docker compose restart openbao
+	@./scripts/orchestrator.py restart-openbao
 
 init-openbao: env-file configure-seal
 	@./scripts/orchestrator.py init-openbao
@@ -83,15 +82,15 @@ init-openbao: env-file configure-seal
 # ------------------------------------------------------------------------------
 # Semaphore
 # ------------------------------------------------------------------------------
-start-semaphore: env-file
-	@docker compose up -d --remove-orphans semaphore
+start-semaphore: env-file configure-seal
+	@./scripts/orchestrator.py start-semaphore
 	@./scripts/orchestrator.py init-semaphore
 
 stop-semaphore:
-	@docker compose stop semaphore
+	@./scripts/orchestrator.py stop-semaphore
 
 restart-semaphore:
-	@docker compose restart semaphore
+	@./scripts/orchestrator.py restart-semaphore
 
 init-semaphore: env-file
 	@./scripts/orchestrator.py init-semaphore
@@ -108,4 +107,4 @@ test-e2e:
 	@pytest tests/ -v
 
 clean:
-	@docker compose down -v
+	@./scripts/orchestrator.py down
