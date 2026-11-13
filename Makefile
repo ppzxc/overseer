@@ -32,6 +32,8 @@ help:
 # ------------------------------------------------------------------------------
 TARGET_DIR ?=
 TARGET_FLAG := $(if $(TARGET_DIR),--target-dir $(TARGET_DIR),)
+SERVICES_ROOT ?= /opt/services
+DATA_ROOT ?= /data
 
 env-file:
 	@if [ ! -f .env ]; then ./scripts/orchestrator.py configure-seal >/dev/null 2>&1 || cp .env.example .env; fi
@@ -49,7 +51,7 @@ up bootstrap: env-file
 	@./scripts/orchestrator.py bootstrap
 
 production-sync: env-file
-	@./scripts/orchestrator.py deploy-target $(TARGET_FLAG)
+	@./scripts/orchestrator.py deploy-target $(TARGET_FLAG) --services-root $(SERVICES_ROOT) --data-root $(DATA_ROOT)
 
 down:
 	@./scripts/orchestrator.py down

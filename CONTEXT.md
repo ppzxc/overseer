@@ -10,7 +10,8 @@
 - **Multi-OS Support**: Provisioning and management support across RHEL/CentOS generations (CentOS 6 to Rocky Linux 9/10) as well as Debian/Ubuntu.
 
 ## 3. System Boundaries
-- `openbao/compose.yml`, `semaphore/compose.yml`: Independently managed Compose definitions for each service.
+- `openbao/compose.yml`, `semaphore/compose.yml`: Repository Compose sources. Production copies only each file into `/opt/services/openbao/` and `/opt/services/semaphore/`.
+- `/data/openbao/{config,data}`, `/data/semaphore/{config,data,work}`: Persistent production configuration, database, and work paths.
 - `docs/`: Unified documentation repository containing control plane specifications and ADRs (`docs/adr/`).
 - `openbao/`: OpenBao configuration and SSH CA bootstrap scripts.
 - `scripts/`: Bootstrap, healthcheck, specification verification, and Semaphore auto-seeding automation.

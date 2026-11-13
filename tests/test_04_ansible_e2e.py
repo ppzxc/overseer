@@ -22,11 +22,11 @@ def test_ctrl_004_semaphore_service_definition(root_dir):
     assert "nc -z 127.0.0.1 3000" in compose_content or "3000" in compose_content, "Semaphore port 3000 must be configured"
     assert "SEMAPHORE_DB_DIALECT: sqlite" in compose_content, "SQLite dialect must be configured"
     assert "SEMAPHORE_DB_PATH: /var/lib/semaphore" in compose_content
-    assert "${DATA_DIR:-/data}/semaphore-db:/var/lib/semaphore" in compose_content
+    assert "${DATA_DIR:-/data}/semaphore/data:/var/lib/semaphore" in compose_content
     
     # 2. 전용 데이터 볼륨 및 OpenBao CA 마운트 검증
-    assert "${DATA_DIR:-/data}/semaphore:/tmp/semaphore" in compose_content, "Semaphore must use dedicated data volume"
-    assert "${DATA_DIR:-/data}/openbao:/openbao/data:ro" in compose_content, "Semaphore must mount OpenBao data volume"
+    assert "${DATA_DIR:-/data}/semaphore/work:/tmp/semaphore" in compose_content, "Semaphore must use dedicated work volume"
+    assert "${DATA_DIR:-/data}/openbao/data:/openbao/data:ro" in compose_content, "Semaphore must mount OpenBao data volume"
 
 def test_ctrl_005_gitops_seeding_contract(root_dir):
     """[CTRL-005] Semaphore GitOps Project, Repository, and Task Templates Seeding Blueprint"""

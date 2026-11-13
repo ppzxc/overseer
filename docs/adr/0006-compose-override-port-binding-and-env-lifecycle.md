@@ -24,9 +24,9 @@
 ### 2.1 서비스별 Compose 오버라이드 기반 포트 바인딩
 - `openbao/compose.yml`, `semaphore/compose.yml`은 `ports:`를 포함하지 않습니다. OpenBao는 backend 네트워크 내부에서만 접근합니다.
 - `make bootstrap` 또는 `orchestrator.py` 실행 시 `EXPOSE_PORTS=true`인 경우:
-  - `semaphore/compose.override.yml`을 생성하여 Semaphore UI의 `0.0.0.0:3000:3000` 바인딩을 주입합니다.
+  - 저장소 로컬 실행에서는 `semaphore/compose.override.yml`을, 분리된 운영 서비스 디렉터리에서는 Overseer 운영 루트의 `semaphore.compose.override.yml`을 생성하여 Semaphore UI의 `0.0.0.0:3000:3000` 바인딩을 주입합니다. 운영 서비스 디렉터리에는 `compose.yml`만 남깁니다.
 - `EXPOSE_PORTS=false` (Internal only)인 경우:
-  - 서비스별 `compose.override.yml` 파일을 삭제하여 Semaphore UI 호스트 포트 바인딩을 원천 차단합니다.
+  - 로컬/운영 루트의 서비스별 override 파일을 삭제하여 Semaphore UI 호스트 포트 바인딩을 차단합니다.
 
 ### 2.2 `.env` 점진적 활성화 (Comment / Uncomment Lifecycle)
 - `scripts/orchestrator.py`에 `set_env_var(key, value, uncomment)` 로직을 구현하여:

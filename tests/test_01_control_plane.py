@@ -14,7 +14,7 @@ def test_ctrl_001_semaphore_sqlite_storage(root_dir):
     compose_content = (root_dir / "semaphore" / "compose.yml").read_text(encoding="utf-8")
     assert "SEMAPHORE_DB_DIALECT: sqlite" in compose_content
     assert "SEMAPHORE_DB_PATH: /var/lib/semaphore" in compose_content
-    assert "${DATA_DIR:-/data}/semaphore-db:/var/lib/semaphore" in compose_content
+    assert "${DATA_DIR:-/data}/semaphore/data:/var/lib/semaphore" in compose_content
     assert "postgres:" not in compose_content
     assert "boundary" not in compose_content.lower()
 
@@ -27,13 +27,16 @@ def test_ctrl_002_network_and_orchestration(root_dir):
     assert not (root_dir / "compose.yml").exists(), "the combined root Compose file must be removed"
     content = openbao_file.read_text()
     assert "name: app" in content, "OpenBao Compose must use the shared app project name"
-    assert "./config:/openbao/config" in content and "./scripts:/openbao/scripts" in content
+    assert "${OPENBAO_CONFIG_DIR:-./config}:/openbao/config" in content
+    assert "${OPENBAO_SCRIPTS_DIR:-./scripts}:/openbao/scripts" in content
+    assert "${DATA_DIR:-/data}/openbao/data:/openbao/data" in content
     assert "json-file" in content and "max-size: 20m" in content and 'max-file: "3"' in content
     assert "container_name:" not in content, "container_name: must be removed for standard Compose v2 naming"
     assert "backend:" in content and "external: true" in content, "backend network must be external"
     semaphore_content = semaphore_file.read_text()
     assert "name: app" in semaphore_content
-    assert "./requirements.txt:/etc/semaphore/requirements.txt" in semaphore_content
+    assert "${SEMAPHORE_CONFIG_DIR:-.}/requirements.txt:/etc/semaphore/requirements.txt" in semaphore_content
+    assert "${DATA_DIR:-/data}/semaphore/data:/var/lib/semaphore" in semaphore_content
     assert "json-file" in semaphore_content and "max-size: 20m" in semaphore_content and 'max-file: "3"' in semaphore_content
     assert "--remove-orphans" not in (root_dir / "scripts" / "orchestrator.py").read_text()
 

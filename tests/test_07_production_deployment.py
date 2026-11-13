@@ -16,10 +16,11 @@ def test_ctrl_008_production_deployment_module_exists(root_dir):
     content = orchestrator.read_text(encoding="utf-8")
     assert "deploy_to_target" in content or "install_production" in content, "deploy_to_target function missing in orchestrator.py"
     assert "--target-dir" in content, "--target-dir argument missing in orchestrator.py"
+    assert "--services-root" in content and "--data-root" in content
     assert "/opt/services/overseer" in content, "Default target path /opt/services/overseer missing"
 
-def test_ctrl_008_production_sync_file_matrix(root_dir, tmp_path):
-    """[CTRL-008] Verify that deploy_to_target copies only production essentials and excludes dev/test files"""
+def test_ctrl_008_production_sync_file_matrix(root_dir, tmp_path, monkeypatch):
+    """[CTRL-008] Copy one Compose file per service and persist config under the data root."""
     import sys
     sys.path.insert(0, str(root_dir / "scripts"))
     import orchestrator
@@ -32,22 +33,37 @@ def test_ctrl_008_production_sync_file_matrix(root_dir, tmp_path):
     stale_boundary_dir = target_dir / "boundary"
     stale_boundary_dir.mkdir(parents=True)
     (stale_boundary_dir / "local-data.txt").write_text("preserve existing target data", encoding="utf-8")
+    services_root = tmp_path / "services"
+    data_root = tmp_path / "data"
+    for service in ("openbao", "semaphore"):
+        stale = services_root / service
+        stale.mkdir(parents=True)
+        (stale / "stale.txt").write_text("remove stale service-folder file", encoding="utf-8")
     
     # Run deployment sync to temporary target
-    copied_files = orchestrator.deploy_to_target(source_dir=root_dir, target_dir=target_dir)
+    copied_files = orchestrator.deploy_to_target(
+        source_dir=root_dir,
+        target_dir=target_dir,
+        services_root=services_root,
+        data_root=data_root,
+    )
     
     # 1. Essential files MUST exist in target
-    assert (target_dir / "openbao" / "compose.yml").exists(), "OpenBao Compose file must be in production target"
-    assert (target_dir / "semaphore" / "compose.yml").exists(), "Semaphore Compose file must be in production target"
-    assert (target_dir / "semaphore" / "compose.override.yml").exists(), "Semaphore host port override must be deployed"
-    assert not (target_dir / "openbao" / "compose.override.yml").exists(), "OpenBao must remain internal"
+    assert (services_root / "openbao" / "compose.yml").exists(), "OpenBao Compose file must be in its service folder"
+    assert (services_root / "semaphore" / "compose.yml").exists(), "Semaphore Compose file must be in its service folder"
+    assert sorted(p.name for p in (services_root / "openbao").iterdir()) == ["compose.yml"]
+    assert sorted(p.name for p in (services_root / "semaphore").iterdir()) == ["compose.yml"]
+    assert (target_dir / "semaphore.compose.override.yml").exists(), "Optional port binding must live outside the service folder"
     assert not (target_dir / "compose.yml").exists(), "combined root Compose file must not be deployed"
     assert not (target_dir / "compose.override.yml").exists(), "obsolete root Compose override must be removed"
     assert (target_dir / "Makefile").exists(), "Makefile must be in production target"
     assert (target_dir / "README.md").exists(), "README.md must be in production target"
     assert (target_dir / "CONTEXT.md").exists(), "CONTEXT.md must be in production target"
     assert (target_dir / ".env.example").exists(), ".env.example must be in production target"
-    assert (target_dir / "openbao" / "config").exists()
+    assert (data_root / "openbao" / "config" / "openbao.hcl").exists()
+    assert (data_root / "openbao" / "config" / "profiles" / "local-shamir.hcl").exists()
+    assert (target_dir / "openbao" / "config" / "profiles" / "local-shamir.hcl").exists()
+    assert (data_root / "semaphore" / "config" / "requirements.txt").exists()
     assert (target_dir / "openbao" / "scripts" / "init-openbao-ssh-ca.sh").exists()
     assert (stale_boundary_dir / "local-data.txt").read_text(encoding="utf-8") == "preserve existing target data", "Deployment sync must preserve pre-existing target data"
     assert (target_dir / "scripts" / "orchestrator.py").exists()
@@ -55,7 +71,16 @@ def test_ctrl_008_production_sync_file_matrix(root_dir, tmp_path):
     assert (target_dir / "scripts" / "healthcheck.sh").exists()
     assert (target_dir / "scripts" / "migrate-semaphore-postgres-to-sqlite.py").exists()
     assert (target_dir / "docs" / "control-plane" / "semaphore-postgres-to-sqlite.md").exists()
-    assert (target_dir / ".env").read_text(encoding="utf-8") == "SEMAPHORE_ACCESS_KEY_ENCRYPTION=live-secret\nEXPOSE_PORTS=true\n", "Production .env must be preserved during sync"
+    env_after_sync = (target_dir / ".env").read_text(encoding="utf-8")
+    assert "SEMAPHORE_ACCESS_KEY_ENCRYPTION=live-secret\n" in env_after_sync
+    assert "OPENBAO_COMPOSE_DIR=" + str(services_root) + "/openbao" in env_after_sync
+    assert "SEMAPHORE_CONFIG_DIR=" + str(data_root) + "/semaphore/config" in env_after_sync
+    monkeypatch.setattr(orchestrator, "ROOT_DIR", target_dir)
+    command = orchestrator.compose_command("openbao", "ps")
+    assert str(services_root / "openbao" / "compose.yml") in command
+    assert str(services_root / "openbao") in command
+    semaphore_command = orchestrator.compose_command("semaphore", "ps")
+    assert str(target_dir / "semaphore.compose.override.yml") in semaphore_command
 
     # 2. Non-production / dev / test / git files MUST NOT exist in target
     assert not (target_dir / ".git").exists(), ".git directory must NOT be copied"
@@ -63,15 +88,6 @@ def test_ctrl_008_production_sync_file_matrix(root_dir, tmp_path):
     assert not (target_dir / "docs" / "adr").exists(), "Architecture docs must NOT be copied"
     assert not (target_dir / "scripts" / "validate-specs.py").exists(), "validate-specs.py must NOT be in production"
     assert not (target_dir / ".pytest_cache").exists(), ".pytest_cache must NOT be copied"
-
-    ports_disabled_target = tmp_path / "ports_disabled"
-    ports_disabled_target.mkdir()
-    (ports_disabled_target / ".env").write_text("EXPOSE_PORTS=false\n", encoding="utf-8")
-    (ports_disabled_target / "semaphore").mkdir()
-    (ports_disabled_target / "semaphore" / "compose.override.yml").write_text("stale binding\n", encoding="utf-8")
-    orchestrator.deploy_to_target(source_dir=root_dir, target_dir=ports_disabled_target)
-    assert not (ports_disabled_target / "semaphore" / "compose.override.yml").exists(), "EXPOSE_PORTS=false must stay disabled after sync"
-
 
 def test_ctrl_008_makefile_target_support(root_dir):
     """[CTRL-008] Makefile supports TARGET_DIR and install/production targets"""

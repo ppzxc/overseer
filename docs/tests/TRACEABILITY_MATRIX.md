@@ -10,7 +10,7 @@
 
 | Spec ID | 구분 (Domain) | 스펙 및 태스크 명칭 (Specification Name) | 문서 (Docs) | 코드 구현 (Implementation) | 자동화 테스트 (Verification) |
 |---|---|---|:---:|:---:|:---:|
-| `BAO-CTRL-001` | Control Plane | OpenBao Server Initialization and Unseal | ✅ OK | ✅ `openbao/config/openbao.hcl` | ✅ `Pytest E2E (test_01_control_plane.py)` |
+| `BAO-CTRL-001` | Control Plane | OpenBao Server Initialization and Unseal | ✅ OK | ✅ `openbao/config/openbao.hcl` → `/data/openbao/config/openbao.hcl` | ✅ `Pytest E2E (test_01_control_plane.py)` |
 | `BAO-CTRL-002` | Control Plane | OpenBao SSH CA Secrets Engine Mount | ✅ OK | ✅ `openbao/scripts/init-openbao-ssh-ca.sh` | ✅ `Pytest E2E (test_02_openbao_ssh_ca.py)` |
 | `BAO-CTRL-003` | Control Plane | OpenBao SSH User Certificate Signing Role | ✅ OK | ✅ `openbao/scripts/init-openbao-ssh-ca.sh` | ✅ `Pytest E2E (test_02_openbao_ssh_ca.py)` |
 | `CTRL-001` | Control Plane | Semaphore SQLite Persistent Storage | ✅ OK | ✅ `compose.yml` | ✅ `Pytest E2E (test_01_control_plane.py)` |

@@ -105,19 +105,33 @@ def run_cmd(cmd, check=True, capture=False, env=None):
         env=full_env
     )
 
+def get_service_compose_dir(service: str) -> Path:
+    """Resolve a service Compose directory from the deployment .env or repository layout."""
+    if service not in {"openbao", "semaphore"}:
+        raise ValueError(f"Unknown or missing Compose service: {service}")
+    env_values = read_env_file()
+    configured_dir = env_values.get(f"{service.upper()}_COMPOSE_DIR")
+    compose_dir = Path(configured_dir).expanduser() if configured_dir else ROOT_DIR / service
+    if not compose_dir.is_absolute():
+        compose_dir = ROOT_DIR / compose_dir
+    return compose_dir.resolve()
+
 def compose_command(service: str, *arguments: str) -> str:
     """Build a Compose command for one independently managed service."""
-    compose_file = ROOT_DIR / service / "compose.yml"
-    if service not in {"openbao", "semaphore"} or not compose_file.exists():
-        raise ValueError(f"Unknown or missing Compose service: {service}")
+    compose_dir = get_service_compose_dir(service)
+    compose_file = compose_dir / "compose.yml"
+    if not compose_file.exists():
+        raise ValueError(f"Unknown or missing Compose service: {compose_file}")
 
     command = [
         "docker", "compose",
-        "--project-directory", str(ROOT_DIR / service),
+        "--project-directory", str(compose_dir),
         "--env-file", str(ROOT_DIR / ".env"),
         "-f", str(compose_file),
     ]
-    override_file = ROOT_DIR / service / "compose.override.yml"
+    override_file = compose_dir / "compose.override.yml"
+    if not override_file.exists():
+        override_file = ROOT_DIR / f"{service}.compose.override.yml"
     if override_file.exists():
         command.extend(["-f", str(override_file)])
     command.extend(arguments)
@@ -172,7 +186,10 @@ def run_preflight_checks(exit_on_failure=True):
 
     # 4. Filesystem Directory Writeability for Centralized DATA_DIR (/data)
     data_dir = get_configured_data_dir()
-    required_subs = ["openbao", "semaphore", "semaphore-db", "credentials"]
+    required_subs = [
+        "openbao/data", "openbao/config", "semaphore/data", "semaphore/work",
+        "semaphore/config", "network-backups", "credentials",
+    ]
     try:
         data_dir.mkdir(parents=True, exist_ok=True)
         for sub in required_subs:
@@ -387,18 +404,19 @@ def configure_port_binding(expose_ports=True):
         set_env_var(k, val, uncomment=expose_ports)
 
     if expose_ports:
-        openbao_override = ROOT_DIR / "openbao" / "compose.override.yml"
-        if openbao_override.exists():
-            openbao_override.unlink()
-        (ROOT_DIR / "semaphore" / "compose.override.yml").write_text(
-            render_semaphore_port_override(), encoding="utf-8"
-        )
+        openbao_dir = get_service_compose_dir("openbao")
+        semaphore_dir = get_service_compose_dir("semaphore")
+        openbao_override = ROOT_DIR / "openbao.compose.override.yml" if openbao_dir != (ROOT_DIR / "openbao").resolve() else openbao_dir / "compose.override.yml"
+        semaphore_override = ROOT_DIR / "semaphore.compose.override.yml" if semaphore_dir != (ROOT_DIR / "semaphore").resolve() else semaphore_dir / "compose.override.yml"
+        if openbao_override.exists(): openbao_override.unlink()
+        semaphore_override.write_text(render_semaphore_port_override(), encoding="utf-8")
         print(f"{GREEN}[+] Generated service Compose overrides for host port exposure{RESET}")
     else:
         for service in ("openbao", "semaphore"):
-            override_file = ROOT_DIR / service / "compose.override.yml"
-            if override_file.exists():
-                override_file.unlink()
+            local_override = ROOT_DIR / service / "compose.override.yml"
+            external_override = ROOT_DIR / f"{service}.compose.override.yml"
+            for override_file in (local_override, external_override):
+                if override_file.exists(): override_file.unlink()
         print(f"{YELLOW}[-] Removed service Compose overrides (no host port bindings){RESET}")
 
 def ensure_runtime_keys_injected(interactive=True):
@@ -562,13 +580,18 @@ def prompt_and_configure_all(interactive=True):
     # Inject OpenBao config
     openbao_profile = "gcp-kms.hcl" if seal_type == "gcpkms" else "local-shamir.hcl"
     openbao_src = ROOT_DIR / "openbao" / "config" / "profiles" / openbao_profile
-    openbao_dst = ROOT_DIR / "openbao" / "config" / "openbao.hcl"
+    configured_openbao_dir = env_vars.get("OPENBAO_CONFIG_DIR")
+    openbao_config_dir = Path(configured_openbao_dir).expanduser() if configured_openbao_dir else ROOT_DIR / "openbao" / "config"
+    if not openbao_config_dir.is_absolute():
+        openbao_config_dir = (ROOT_DIR / "openbao" / openbao_config_dir).resolve()
+    openbao_config_dir.mkdir(parents=True, exist_ok=True)
+    openbao_dst = openbao_config_dir / "openbao.hcl"
     if openbao_src.exists():
         content = openbao_src.read_text(encoding="utf-8")
         for k, v in os.environ.items():
             content = content.replace(f"${{{k}}}", v)
         openbao_dst.write_text(content, encoding="utf-8")
-        print(f"{GREEN}[+] Injected OpenBao profile: {openbao_profile} -> openbao/config/openbao.hcl{RESET}")
+    print(f"{GREEN}[+] Injected OpenBao profile: {openbao_profile} -> {openbao_dst}{RESET}")
 
     # If Manual Mode is chosen: Display keys securely and completely wipe from .env
     if profile == "manual":
@@ -667,7 +690,7 @@ def init_semaphore():
     if init_script.exists():
         run_cmd(str(init_script), check=False)
 
-def deploy_to_target(source_dir: Path, target_dir: Path):
+def deploy_to_target(source_dir: Path, target_dir: Path, services_root: Path | None = None, data_root: Path | None = None):
     """
     Copies only production-critical operational files to the target deployment directory,
     excluding tests, docs, git repository, test artifacts, and caches.
@@ -675,6 +698,8 @@ def deploy_to_target(source_dir: Path, target_dir: Path):
     """
     source_dir = Path(source_dir).resolve()
     target_dir = Path(target_dir).resolve()
+    services_root = Path(services_root).resolve() if services_root else target_dir
+    data_root = Path(data_root).resolve() if data_root else target_dir / "data"
     
     print(f"\n{BOLD}{CYAN}================================================================================{RESET}")
     print(f"{BOLD}{CYAN}      Deploying Overseer Operational Files to Target Location                   {RESET}")
@@ -701,41 +726,75 @@ def deploy_to_target(source_dir: Path, target_dir: Path):
             stale_compose.unlink()
             print(f"{YELLOW}[-] Removed obsolete {obsolete_file}{RESET}")
 
-    # Each service owns its Compose project file and optional generated port override.
-    for service in ("openbao", "semaphore"):
-        for filename in ("compose.yml", "compose.override.yml"):
-            src_compose = source_dir / service / filename
-            dst_compose = target_dir / service / filename
-            if src_compose.exists():
-                dst_compose.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(src_compose, dst_compose)
-            elif filename == "compose.override.yml" and dst_compose.exists():
-                dst_compose.unlink()
-    target_env = read_env_file(path=target_dir / ".env")
-    semaphore_override = target_dir / "semaphore" / "compose.override.yml"
-    openbao_override = target_dir / "openbao" / "compose.override.yml"
-    if target_env.get("EXPOSE_PORTS", "false").lower() == "false":
-        if semaphore_override.exists():
-            semaphore_override.unlink()
-    else:
-        semaphore_override.parent.mkdir(parents=True, exist_ok=True)
-        semaphore_override.write_text(render_semaphore_port_override(), encoding="utf-8")
-    if openbao_override.exists():
-        openbao_override.unlink()
-    requirements_src = source_dir / "semaphore" / "requirements.txt"
-    if requirements_src.exists():
-        (target_dir / "semaphore").mkdir(parents=True, exist_ok=True)
-        shutil.copy2(requirements_src, target_dir / "semaphore" / "requirements.txt")
+    target_env_path = target_dir / ".env"
+    target_env = read_env_file(path=target_env_path)
+    env_defaults = {
+        "DATA_DIR": str(data_root),
+        "OPENBAO_COMPOSE_DIR": str(services_root / "openbao"),
+        "SEMAPHORE_COMPOSE_DIR": str(services_root / "semaphore"),
+        "OPENBAO_CONFIG_DIR": str(data_root / "openbao" / "config"),
+        "OPENBAO_SCRIPTS_DIR": str(target_dir / "openbao" / "scripts"),
+        "SEMAPHORE_CONFIG_DIR": str(data_root / "semaphore" / "config"),
+        "CURRENT_UID": str(os.getuid()) if hasattr(os, "getuid") else "1000",
+        "CURRENT_GID": str(os.getgid()) if hasattr(os, "getgid") else "1000",
+    }
+    missing_env = {k: v for k, v in env_defaults.items() if not target_env.get(k)}
+    if target_env_path.exists() and missing_env:
+        with target_env_path.open("a", encoding="utf-8") as env_file:
+            if target_env_path.stat().st_size and not target_env_path.read_bytes().endswith(b"\n"):
+                env_file.write("\n")
+            env_file.write("\n# Overseer service and persistent storage paths\n")
+            for key, value in missing_env.items():
+                env_file.write(f"{key}={value}\n")
+        target_env.update(missing_env)
 
-    # 2. OpenBao configuration & scripts
-    (target_dir / "openbao" / "config").mkdir(parents=True, exist_ok=True)
+    semaphore_override = target_dir / "semaphore.compose.override.yml"
+    if target_env.get("EXPOSE_PORTS", "false").lower() == "true":
+        semaphore_override.write_text(render_semaphore_port_override(), encoding="utf-8")
+    elif semaphore_override.exists():
+        semaphore_override.unlink()
+
+    # Each service directory in the production layout contains only compose.yml.
+    for service in ("openbao", "semaphore"):
+        service_dir = services_root / service
+        service_dir.mkdir(parents=True, exist_ok=True)
+        compose_src = source_dir / service / "compose.yml"
+        if not compose_src.exists():
+            raise FileNotFoundError(f"Missing service Compose file: {compose_src}")
+        compose_dst = service_dir / "compose.yml"
+        shutil.copy2(compose_src, compose_dst)
+        for child in service_dir.iterdir():
+            if child.name == "compose.yml":
+                continue
+            if child.is_dir() and not child.is_symlink():
+                shutil.rmtree(child)
+            else:
+                child.unlink()
+
+    # 2. Persist service settings under /data, outside the service Compose folders.
+    openbao_config_dir = Path(target_env.get("OPENBAO_CONFIG_DIR", data_root / "openbao" / "config"))
+    semaphore_config_dir = Path(target_env.get("SEMAPHORE_CONFIG_DIR", data_root / "semaphore" / "config"))
+    if not openbao_config_dir.is_absolute():
+        openbao_config_dir = (services_root / "openbao" / openbao_config_dir).resolve()
+    if not semaphore_config_dir.is_absolute():
+        semaphore_config_dir = (services_root / "semaphore" / semaphore_config_dir).resolve()
+    openbao_config_dir.mkdir(parents=True, exist_ok=True)
+    semaphore_config_dir.mkdir(parents=True, exist_ok=True)
+
     (target_dir / "openbao" / "scripts").mkdir(parents=True, exist_ok=True)
-    
     openbao_profiles_src = source_dir / "openbao" / "config" / "profiles"
     if openbao_profiles_src.exists():
+        shutil.copytree(openbao_profiles_src, openbao_config_dir / "profiles", dirs_exist_ok=True)
         shutil.copytree(openbao_profiles_src, target_dir / "openbao" / "config" / "profiles", dirs_exist_ok=True)
-    if (source_dir / "openbao" / "config" / "openbao.hcl").exists():
-        shutil.copy2(source_dir / "openbao" / "config" / "openbao.hcl", target_dir / "openbao" / "config" / "openbao.hcl")
+    openbao_hcl_src = source_dir / "openbao" / "config" / "openbao.hcl"
+    if openbao_hcl_src.exists() and not (openbao_config_dir / "openbao.hcl").exists():
+        shutil.copy2(openbao_hcl_src, openbao_config_dir / "openbao.hcl")
+    policies_src = source_dir / "openbao" / "policies"
+    if policies_src.exists():
+        shutil.copytree(policies_src, openbao_config_dir / "policies", dirs_exist_ok=True)
+    requirements_src = source_dir / "semaphore" / "requirements.txt"
+    if requirements_src.exists():
+        shutil.copy2(requirements_src, semaphore_config_dir / "requirements.txt")
     if (source_dir / "openbao" / "scripts" / "init-openbao-ssh-ca.sh").exists():
         shutil.copy2(source_dir / "openbao" / "scripts" / "init-openbao-ssh-ca.sh", target_dir / "openbao" / "scripts" / "init-openbao-ssh-ca.sh")
         (target_dir / "openbao" / "scripts" / "init-openbao-ssh-ca.sh").chmod(0o755)
@@ -837,6 +896,8 @@ def main():
     parser = argparse.ArgumentParser(description="Overseer Control Plane Lifecycle Orchestrator")
     parser.add_argument("action", choices=["bootstrap", "up", "preflight", "status", "down", "init-openbao", "init-semaphore", "start-semaphore", "stop-openbao", "stop-semaphore", "restart-openbao", "restart-semaphore", "logs", "logs-openbao", "logs-semaphore", "configure-seal", "deploy-target"], help="Action to perform")
     parser.add_argument("--target-dir", default=None, help="Target production installation directory (default: /opt/services/overseer)")
+    parser.add_argument("--services-root", default="/opt/services", help="Directory containing the per-service Compose folders")
+    parser.add_argument("--data-root", default="/data", help="Persistent service data and configuration root")
     parser.add_argument("--seal-type", choices=["local", "gcpkms"], default=None, help="Force specific seal backend")
     parser.add_argument("--expose-ports", choices=["true", "false"], default=None, help="Expose ports to host")
     parser.add_argument("--shamir-mode", choices=["auto", "manual"], default=None, help="OpenBao shamir unseal mode")
@@ -859,7 +920,7 @@ def main():
         bootstrap()
     elif args.action == "deploy-target":
         target = Path(args.target_dir if args.target_dir else "/opt/services/overseer").resolve()
-        deploy_to_target(source_dir=ROOT_DIR, target_dir=target)
+        deploy_to_target(source_dir=ROOT_DIR, target_dir=target, services_root=Path(args.services_root), data_root=Path(args.data_root))
     elif args.action == "preflight":
         passed = run_preflight_checks(exit_on_failure=False)
         sys.exit(0 if passed else 1)

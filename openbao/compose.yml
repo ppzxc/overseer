@@ -19,9 +19,9 @@ services:
       BAO_API_ADDR: "http://127.0.0.1:8200"
       OPENBAO_SHAMIR_MODE: ${OPENBAO_SHAMIR_MODE:-auto}
     volumes:
-      - ./config:/openbao/config:ro
-      - ${DATA_DIR:-/data}/openbao:/openbao/data
-      - ./scripts:/openbao/scripts:ro
+      - ${OPENBAO_CONFIG_DIR:-./config}:/openbao/config:ro
+      - ${DATA_DIR:-/data}/openbao/data:/openbao/data
+      - ${OPENBAO_SCRIPTS_DIR:-./scripts}:/openbao/scripts:ro
     entrypoint: ["bao", "server", "-config=/openbao/config/openbao.hcl"]
     networks:
       - backend

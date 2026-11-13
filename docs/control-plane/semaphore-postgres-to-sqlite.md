@@ -10,7 +10,7 @@
 - 구버전/신버전 모두 `semaphoreui/semaphore:v2.19.12`를 사용합니다.
 - `SEMAPHORE_ACCESS_KEY_ENCRYPTION` 기존 값을 그대로 유지합니다. 이 값을 바꾸면 저장된 키스토어 자격증명을 복호화하지 못할 수 있습니다.
 - 키가 `.env`에 저장되지 않는 수동 키 관리 모드라면, 안전한 키 보관본에서 기존 값을 대화형으로 주입합니다. 새 키를 만들지 않습니다.
-- 새 Compose 파일의 `${DATA_DIR}/semaphore-db/database.sqlite`와 체크섬 보고서 저장 공간을 확보합니다.
+- 새 Compose 파일의 `${DATA_DIR}/semaphore/data/database.sqlite`와 체크섬 보고서 저장 공간을 확보합니다.
 - 호스트 Python 3 및 격리된 가상환경을 준비하고 psycopg 3를 설치합니다:
 
   ```bash
@@ -22,7 +22,7 @@
 
 ## 중단 전 준비 및 백업
 
-1. 현재 `/home/ppzxc/services/overseer`의 `semaphore/compose.yml`, `semaphore/compose.override.yml`, `.env`와 PostgreSQL 서비스 설정을 권한 제한된 백업 디렉터리에 복사합니다. `.env`에는 비밀값이 있으므로 권한을 `0600`으로 제한합니다.
+1. 현재 Semaphore Compose 파일(`/opt/services/semaphore/compose.yml`), 운영 `.env`, 그리고 PostgreSQL 서비스 설정을 권한 제한된 백업 디렉터리에 복사합니다. `.env`에는 비밀값이 있으므로 권한을 `0600`으로 제한합니다.
 2. Semaphore 작업 큐와 실행 중인 작업이 비었는지 UI/API에서 확인합니다. 이후 Semaphore와 Boundary를 중지합니다.
 3. 현재 PostgreSQL 데이터베이스 전체를 custom 형식으로 백업합니다. 기존 운영 환경의 실제 컨테이너명, 사용자, DB명을 사용합니다.
 
@@ -57,9 +57,9 @@
    cd /home/ppzxc/services/overseer
    read -rsp 'Existing Semaphore encryption key: ' SEMAPHORE_ACCESS_KEY_ENCRYPTION; echo
    export SEMAPHORE_ACCESS_KEY_ENCRYPTION
-   docker compose --project-directory . --env-file .env -f semaphore/compose.yml up -d semaphore
-   docker compose --project-directory . --env-file .env -f semaphore/compose.yml logs --no-color semaphore
-   docker compose --project-directory . --env-file .env -f semaphore/compose.yml stop semaphore
+   docker compose --project-directory /opt/services/semaphore --env-file /home/ppzxc/services/overseer/.env -f /opt/services/semaphore/compose.yml up -d semaphore
+   docker compose --project-directory /opt/services/semaphore --env-file /home/ppzxc/services/overseer/.env -f /opt/services/semaphore/compose.yml logs --no-color semaphore
+   docker compose --project-directory /opt/services/semaphore --env-file /home/ppzxc/services/overseer/.env -f /opt/services/semaphore/compose.yml stop semaphore
    unset SEMAPHORE_ACCESS_KEY_ENCRYPTION
    ```
 
@@ -69,7 +69,7 @@
    read -rsp 'PostgreSQL DSN: ' SEMAPHORE_PG_DSN; echo
    export SEMAPHORE_PG_DSN
    /tmp/semaphore-migration-venv/bin/python scripts/migrate-semaphore-postgres-to-sqlite.py \
-     --sqlite /data/semaphore-db/database.sqlite \
+     --sqlite /data/semaphore/data/database.sqlite \
      --report "$BACKUP_DIR/semaphore-migration-report.json"
    unset SEMAPHORE_PG_DSN
    ```
