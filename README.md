@@ -11,6 +11,7 @@
 | Semaphore UI 2.19.12 | Ansible GitOps UI, 스케줄러, 작업 실행 (메모리 한도 4GiB) | `${DATA_DIR}/semaphore/data` (SQLite) |
 | Semaphore 설정 | Ansible 추가 Python 패키지 목록 | `${DATA_DIR}/semaphore/config` |
 | Semaphore 작업 캐시 | 체크아웃한 저장소와 작업 디렉터리 | `${DATA_DIR}/semaphore/work` |
+| Warpgate 0.30.4 (선택 모듈) | SSH·DB 접근 통제와 세션 기록 bastion. 독립 모듈이며 오케스트레이터(`make up`)에는 연결되지 않음, `warpgate/README.md` 참고 | `${DATA_DIR}/warpgate/data` |
 | 네트워크 장비 설정 백업 | Cisco 및 FortiGate 설정 백업 파일 | `${DATA_DIR}/network-backups` |
 
 저장소 안에서는 `openbao/compose.yml`, `semaphore/compose.yml`로 각각 관리합니다. 운영에서는 Compose 파일만 `/opt/services/openbao/compose.yml`, `/opt/services/semaphore/compose.yml`에 둡니다. 환경변수는 OpenBao의 `/data/openbao/config/.env`, Semaphore의 `/data/semaphore/config/.env`로 나눠 보관합니다. 운영 스크립트는 `TARGET_DIR`에서 관리하며 Compose 폴더에는 파일 하나만 남깁니다. 설정과 상태 데이터는 `/data/openbao/{config,data}` 및 `/data/semaphore/{config,data,work}`에 보관합니다. 두 Compose 파일은 `name: app`과 `json-file` 로그 회전(`20m`, 3개 파일)을 사용하고 공유 외부 `backend` 네트워크에 연결합니다. Compose 프로젝트 `app`은 Forgejo와 공유하므로 `--remove-orphans`를 사용하지 않습니다.

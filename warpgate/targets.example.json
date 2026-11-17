@@ -1,0 +1,32 @@
+{
+  "targets": [
+    {
+      "name": "ns0266--ppzxc",
+      "kind": "ssh",
+      "host": "ns0266.internal.nanoit.kr",
+      "port": 22,
+      "username": "ppzxc",
+      "password": "secret://openbao/secret/warpgate/ns0266--ppzxc#password"
+    },
+    {
+      "name": "db-example",
+      "kind": "postgres",
+      "host": "db.internal.nanoit.kr",
+      "port": 5432,
+      "username": "app_ro",
+      "database": "postgres",
+      "password": "secret://openbao/secret/warpgate/db-example#password",
+      "tls": "Required"
+    }
+  ],
+  "roles": {
+    "ns0266-ppzxc": ["ns0266--ppzxc"],
+    "db-readonly": ["db-example"]
+  },
+  "users": {
+    "ppzxc": {
+      "roles": ["ns0266-ppzxc", "db-readonly"],
+      "public_keys": {"laptop": "ssh-ed25519 AAAA... ppzxc@example"}
+    }
+  }
+}

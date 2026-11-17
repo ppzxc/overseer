@@ -44,3 +44,6 @@ Thumbs.db
 .vscode/
 *.swp
 *~
+
+# Warpgate real targets
+warpgate/targets.json
