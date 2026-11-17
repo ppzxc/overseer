@@ -51,6 +51,7 @@ overseer/
 │   ├── policies/              # OpenBao ACL 정책 정의
 │   └── scripts/               # SSH CA 엔진 활성화 및 역할 등록 스크립트
 │
+├── warpgate/                  # (선택) Warpgate bastion 모듈: 접근 통제·세션 기록, 대상 동기화 스크립트
 ├── semaphore/                 # Semaphore Compose 및 환경 템플릿
 │   ├── compose.yml
 │   └── .env.example

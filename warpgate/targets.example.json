@@ -1,0 +1,32 @@
+{
+  "targets": [
+    {
+      "name": "server1--alice",
+      "kind": "ssh",
+      "host": "server1.example.internal",
+      "port": 22,
+      "username": "alice",
+      "password": "secret://openbao/secret/warpgate/server1--alice#password"
+    },
+    {
+      "name": "db-example",
+      "kind": "postgres",
+      "host": "db1.example.internal",
+      "port": 5432,
+      "username": "app_ro",
+      "database": "postgres",
+      "password": "secret://openbao/secret/warpgate/db-example#password",
+      "tls": "Required"
+    }
+  ],
+  "roles": {
+    "server1-alice": ["server1--alice"],
+    "db-readonly": ["db-example"]
+  },
+  "users": {
+    "alice": {
+      "roles": ["server1-alice", "db-readonly"],
+      "public_keys": {"laptop": "ssh-ed25519 AAAA... alice@example"}
+    }
+  }
+}

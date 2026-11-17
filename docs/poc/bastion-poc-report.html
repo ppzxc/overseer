@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>접근제어 솔루션 PoC 보고서</title>
+<style>
+  @page { size: A4 landscape; margin: 0; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: #e5e7eb; }
+  body { font-family: "Noto Sans CJK KR", "Noto Sans KR", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif; color: #1f2933; }
+  .page { width: 297mm; height: 210mm; margin: 8mm auto; background: #fff; padding: 9mm 11mm; overflow: hidden; position: relative; }
+  @media print { html, body { background: #fff; } .page { margin: 0; } }
+  h1 { font-size: 16pt; margin: 0 0 1mm; }
+  .sub { font-size: 7.5pt; color: #667085; margin-bottom: 2.5mm; padding-bottom: 2mm; border-bottom: 1px solid #d0d5dd; }
+  .concl { background: #eff4ff; border-radius: 4px; padding: 2mm 3mm; font-size: 8pt; line-height: 1.45; margin-bottom: 3mm; }
+  .concl b { color: #1d4ed8; }
+  .grid { display: grid; grid-template-columns: 118mm 1fr; gap: 6mm; }
+  h2 { font-size: 9pt; margin: 0 0 1.5mm; }
+  table { border-collapse: collapse; width: 100%; font-size: 7.2pt; }
+  th { background: #1f2933; color: #fff; text-align: left; padding: 1mm 1.6mm; font-weight: 700; }
+  td { padding: 0.9mm 1.6mm; border-bottom: 1px solid #eaecf0; }
+  tr:nth-child(even) td { background: #f8fafc; }
+  td:first-child { font-weight: 700; white-space: nowrap; }
+  .ok { color: #047857; } .no { color: #b42318; } .doc { color: #b54708; }
+  .legend { font-size: 6.3pt; color: #667085; margin-top: 1mm; }
+  .cols { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 5mm; margin-top: 3mm; }
+  .cols h3 { font-size: 8.5pt; margin: 0 0 1mm; padding-bottom: 0.8mm; border-bottom: 1.5px solid; }
+  .cols ul { margin: 0; padding-left: 3.5mm; font-size: 7pt; line-height: 1.4; }
+  .cols li { margin-bottom: 0.8mm; }
+  .g h3 { color: #047857; border-color: #047857; } .r h3 { color: #b42318; border-color: #b42318; } .b h3 { color: #1d4ed8; border-color: #1d4ed8; }
+  .foot { position: absolute; left: 11mm; bottom: 5mm; font-size: 6.3pt; color: #667085; }
+  svg text { font-family: "Noto Sans CJK KR", "Noto Sans KR", "Malgun Gothic", sans-serif; }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>접근제어 솔루션 PoC 보고서: Teleport · Warpgate · JumpServer</h1>
+  <div class="sub">2026-11-17 · 로컬 Docker PoC(운영 영향 없음) · 대상: CentOS 6/7, Rocky 8/9/10, PostgreSQL 16, MySQL 8.4, MariaDB 5.5/10.11/13</div>
+
+  <div class="concl">
+    <b>잠정 결론</b> CentOS 6·MariaDB 5.5까지 통제해야 하고 Google 로그인(GWS)과 PC 설치 불필요가 요구라면 <b>Warpgate</b>만 모두 충족한다. 단 1.0 이전 버전이다. 기본은 공용 계정 중계이고, 사람×서버마다 대상을 만들면 개인 OS 계정 1:1 매핑도 가능하다(시험 OK).<br>
+    Teleport는 현대 OS만 대상일 때 개인 식별과 기능이 강하지만 CentOS 6·MariaDB 5.x는 통제 불가, GWS SSO는 Enterprise. JumpServer CE는 DB 네이티브 접속이 안 된다.
+  </div>
+
+  <div class="grid">
+    <div>
+      <h2>비교 요약</h2>
+      <table>
+        <tr><th>항목</th><th>Teleport</th><th>Warpgate</th><th>JumpServer CE</th></tr>
+        <tr><td>Google SSO</td><td class="no">불가(Enterprise)</td><td class="doc">문서확인</td><td class="doc">문서확인</td></tr>
+        <tr><td>CentOS 6 SSH</td><td class="no">불가</td><td class="ok">가능</td><td class="ok">가능</td></tr>
+        <tr><td>MariaDB 5.5</td><td class="no">불가(TLS)</td><td class="ok">가능</td><td class="doc">비공식 magnus만</td></tr>
+        <tr><td>PostgreSQL 16</td><td class="ok">가능</td><td class="ok">가능</td><td class="no">불가(scram)</td></tr>
+        <tr><td>PC 설치</td><td>tsh 필요</td><td class="ok">불필요</td><td>SSH 불필요</td></tr>
+        <tr><td>SQL 원문 기록</td><td class="ok">있음</td><td class="ok">있음</td><td class="ok">있음</td></tr>
+        <tr><td>접근 승인</td><td class="no">Enterprise</td><td class="ok">시험 OK</td><td class="doc">미확인</td></tr>
+        <tr><td>MFA·계정 잠금</td><td class="doc">문서확인</td><td class="ok">시험 OK</td><td class="doc">문서확인</td></tr>
+        <tr><td>OpenBao 연동</td><td>해당 없음</td><td class="ok">시험 OK</td><td class="doc">미시험</td></tr>
+        <tr><td>OS 계정 생성</td><td class="ok">자동(에이전트만)</td><td class="no">없음(Ansible)</td><td class="ok">푸시(격리 해제)</td></tr>
+        <tr><td>개인 식별(서버)</td><td class="ok">개인 인증서</td><td class="doc">개인별 대상 생성 시</td><td class="no">공용 계정</td></tr>
+        <tr><td>라이선스</td><td>조건부 무료</td><td>Apache-2.0</td><td>GPLv3</td></tr>
+      </table>
+      <div class="legend">시험 OK = 로컬에서 직접 확인 · 문서확인 = 문서·소스로만 확인 · 미시험/미확인 = 확인 못 함</div>
+    </div>
+
+    <div>
+      <h2>Semaphore 활용 자동 동기화 구성 (제안, 미시험)</h2>
+      <svg viewBox="0 0 560 300" width="100%" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#475467"/></marker>
+        </defs>
+        <!-- GWS -->
+        <rect x="4" y="22" width="120" height="50" rx="5" fill="#fffaeb" stroke="#f79009"/>
+        <text x="64" y="42" text-anchor="middle" font-size="11" font-weight="700">Google Workspace</text>
+        <text x="64" y="58" text-anchor="middle" font-size="9" fill="#667085">사용자·그룹(임직원 변동)</text>
+        <!-- Semaphore -->
+        <rect x="178" y="14" width="150" height="66" rx="5" fill="#eff4ff" stroke="#1d4ed8" stroke-width="1.5"/>
+        <text x="253" y="35" text-anchor="middle" font-size="12" font-weight="700" fill="#1d4ed8">Semaphore UI</text>
+        <text x="253" y="50" text-anchor="middle" font-size="9" fill="#667085">Ansible 플레이북 실행</text>
+        <text x="253" y="64" text-anchor="middle" font-size="9" fill="#667085">GWS 목록 ↔ 서버 상태 대조</text>
+        <line x1="124" y1="40" x2="176" y2="40" stroke="#475467" marker-end="url(#a)"/>
+        <text x="150" y="34" text-anchor="middle" font-size="8" fill="#667085">스케줄</text>
+        <path d="M64,72 L64,100 L253,100 L253,82" fill="none" stroke="#475467" stroke-dasharray="4 3" marker-end="url(#a)"/>
+        <text x="158" y="96" text-anchor="middle" font-size="8" fill="#667085">선택: 푸시 → 중계 서버 → 웹훅(HMAC)</text>
+        <!-- outputs -->
+        <rect x="392" y="6" width="164" height="38" rx="5" fill="#ecfdf3" stroke="#12b76a"/>
+        <text x="474" y="22" text-anchor="middle" font-size="10" font-weight="700" fill="#047857">서버 OS 개인 계정</text>
+        <text x="474" y="36" text-anchor="middle" font-size="8.5" fill="#667085">Ansible(node-provisioner)</text>
+        <rect x="392" y="52" width="164" height="38" rx="5" fill="#ecfdf3" stroke="#12b76a"/>
+        <text x="474" y="68" text-anchor="middle" font-size="10" font-weight="700" fill="#047857">접근제어 사용자·대상·역할</text>
+        <text x="474" y="82" text-anchor="middle" font-size="8.5" fill="#667085">Warpgate 관리 API (사람×서버)</text>
+        <rect x="392" y="98" width="164" height="38" rx="5" fill="#ecfdf3" stroke="#12b76a"/>
+        <text x="474" y="114" text-anchor="middle" font-size="10" font-weight="700" fill="#047857">OpenBao</text>
+        <text x="474" y="128" text-anchor="middle" font-size="8.5" fill="#667085">계정별 비밀(secret:// 참조)</text>
+        <line x1="328" y1="42" x2="390" y2="25" stroke="#475467" marker-end="url(#a)"/>
+        <line x1="328" y1="48" x2="390" y2="71" stroke="#475467" marker-end="url(#a)"/>
+        <line x1="328" y1="56" x2="390" y2="117" stroke="#475467" marker-end="url(#a)"/>
+        <!-- access path -->
+        <text x="4" y="170" font-size="10" font-weight="700">개발자 접속 경로</text>
+        <rect x="4" y="180" width="96" height="50" rx="5" fill="#f9fafb" stroke="#98a2b3"/>
+        <text x="52" y="201" text-anchor="middle" font-size="10" font-weight="700">개발자 PC</text>
+        <text x="52" y="216" text-anchor="middle" font-size="8.5" fill="#667085">ssh / psql / mysql</text>
+        <rect x="152" y="180" width="160" height="50" rx="5" fill="#eff4ff" stroke="#1d4ed8" stroke-width="1.5"/>
+        <text x="232" y="198" text-anchor="middle" font-size="10" font-weight="700" fill="#1d4ed8">Warpgate (권고)</text>
+        <text x="232" y="211" text-anchor="middle" font-size="8.5" fill="#667085">SSH·DB 중계, 승인·MFA</text>
+        <text x="232" y="223" text-anchor="middle" font-size="8.5" fill="#667085">녹화·SQL 기록</text>
+        <rect x="364" y="180" width="192" height="50" rx="5" fill="#f9fafb" stroke="#98a2b3"/>
+        <text x="460" y="198" text-anchor="middle" font-size="10" font-weight="700">대상 서버·DB</text>
+        <text x="460" y="211" text-anchor="middle" font-size="8.5" fill="#667085">CentOS 6 ~ Rocky 10</text>
+        <text x="460" y="223" text-anchor="middle" font-size="8.5" fill="#667085">MariaDB 5.5~13 · PG · MySQL</text>
+        <line x1="100" y1="205" x2="150" y2="205" stroke="#475467" marker-end="url(#a)"/>
+        <line x1="312" y1="205" x2="362" y2="205" stroke="#475467" marker-end="url(#a)"/>
+        <path d="M474,92 L474,150 L260,150 L260,178" fill="none" stroke="#475467" stroke-dasharray="4 3" marker-end="url(#a)"/>
+        <text x="380" y="146" text-anchor="middle" font-size="8" fill="#667085">사용자·대상·역할 반영</text>
+        <path d="M474,136 L474,150" fill="none" stroke="#475467"/>
+        <text x="232" y="250" text-anchor="middle" font-size="8" fill="#667085">로그: log.send_to → OpenObserve (문서확인)</text>
+        <path d="M232,232 L232,242" stroke="#475467" marker-end="url(#a)" fill="none"/>
+        <text x="4" y="284" font-size="8" fill="#667085">웹훅은 알림용. 동기화는 전체 대조로 설계(푸시 유실·채널 만료 대비). 6명 규모면 정기 실행만으로도 충분.</text>
+      </svg>
+    </div>
+  </div>
+
+  <div class="cols">
+    <div class="g"><h3>시험으로 확인한 것</h3><ul>
+      <li>Warpgate: CentOS 6·MariaDB 5.5 접속, 접근 승인, IP 차단·계정 잠금, TOTP, OpenBao 비밀 참조, 개인 OS 계정 1:1 매핑</li>
+      <li>Teleport: SSH/DB 접근, OS 계정 자동 생성, SCP 차단 / CentOS 6·MariaDB 5.5 불가</li>
+      <li>JumpServer: SSH 전 OS, 명령 필터, 계정 푸시 / DB는 구버전 magnus만</li>
+    </ul></div>
+    <div class="r"><h3>위험·한계</h3><ul>
+      <li>Warpgate 개인 매핑은 사람×서버만큼 대상이 늘어남(6명×서버 N대). 자동 생성 필요</li>
+      <li>Warpgate 녹화 기본 7일(설정 변경 필요), 키 입력 마스킹 없음, 로그 위변조 방지 기능 미확인</li>
+      <li>JumpServer 공식 compose는 docker.sock 마운트·privileged. Teleport 계정 삭제는 동기화 안 됨</li>
+    </ul></div>
+    <div class="b"><h3>다음 단계</h3><ul>
+      <li>1) Warpgate + OpenBao SSH 인증서 서명 시험</li>
+      <li>2) Semaphore 웹훅·GWS 사용자 대조 플레이북 시험</li>
+      <li>3) GWS SSO 실연동 (슈퍼 관리자 설정 필요)</li>
+      <li>4) 운영 DB 종류·버전, 로그 보관·위변조 요건 확정</li>
+    </ul></div>
+  </div>
+
+  <div class="foot">※ ISMS 통제 번호·법령 해석은 심사 전 원문 확인 필요. 상세 결과: docs/poc/bastion-poc-summary.md</div>
+</div>
+</body>
+</html>

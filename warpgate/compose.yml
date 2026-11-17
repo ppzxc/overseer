@@ -1,0 +1,63 @@
+name: app
+
+services:
+  # 최초 1회 설정 (설정 파일이 이미 있으면 건너뜀)
+  warpgate-init:
+    image: ghcr.io/warp-tech/warpgate:${WARPGATE_VERSION:-0.30.4}
+    restart: "no"
+    environment:
+      WARPGATE_ADMIN_PASSWORD: ${WARPGATE_ADMIN_PASSWORD:-}
+    volumes:
+      - ${DATA_DIR:-/data}/warpgate/data:/data
+    command:
+      - unattended-setup
+      - --data-path=/data
+      - --if-config-exists=skip
+      - --http-port=8888
+      - --ssh-port=2222
+      - --mysql-port=33306
+      - --postgres-port=55432
+      - --external-host=${WARPGATE_EXTERNAL_HOST:?Set WARPGATE_EXTERNAL_HOST (FQDN clients use)}
+      - --host-key-verification=${WARPGATE_HOST_KEY_VERIFICATION:-prompt}
+      - --record-sessions
+    networks:
+      - backend
+
+  warpgate:
+    image: ghcr.io/warp-tech/warpgate:${WARPGATE_VERSION:-0.30.4}
+    restart: unless-stopped
+    depends_on:
+      warpgate-init:
+        condition: service_completed_successfully
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          memory: 128M
+    # 웹 UI/API(8888)는 호스트에 공개하지 않고 loopback으로만 연결한다. 외부 접속은 ingress-caddy(443) 경유.
+    # (ns0266은 127.0.0.1:8888을 이미 다른 프로세스가 사용 중이라 기본 18888 사용)
+    ports:
+      - "${WARPGATE_BIND_ADDR:-127.0.0.1}:${WARPGATE_SSH_PORT:-2222}:2222"
+      - "127.0.0.1:${WARPGATE_HTTP_PORT:-18888}:8888"
+      - "${WARPGATE_BIND_ADDR:-127.0.0.1}:${WARPGATE_MYSQL_PORT:-33306}:33306"
+      - "${WARPGATE_BIND_ADDR:-127.0.0.1}:${WARPGATE_POSTGRES_PORT:-55432}:55432"
+    volumes:
+      - ${DATA_DIR:-/data}/warpgate/data:/data
+    networks:
+      - backend
+    labels:
+      role: "bastion"
+      tier: "app"
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: "3"
+        labels: "role,tier,com.docker.compose.project,com.docker.compose.service"
+
+networks:
+  backend:
+    external: true
+    name: backend
