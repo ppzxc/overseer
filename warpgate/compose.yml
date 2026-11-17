@@ -6,7 +6,7 @@ services:
     image: ghcr.io/warp-tech/warpgate:${WARPGATE_VERSION:-0.30.4}
     restart: "no"
     environment:
-      WARPGATE_ADMIN_PASSWORD: ${WARPGATE_ADMIN_PASSWORD:?Set WARPGATE_ADMIN_PASSWORD in the Warpgate module environment}
+      WARPGATE_ADMIN_PASSWORD: ${WARPGATE_ADMIN_PASSWORD:-}
     volumes:
       - ${DATA_DIR:-/data}/warpgate/data:/data
     command:

@@ -2,7 +2,7 @@
 """targets.json(원하는 상태)을 Warpgate Admin API에 멱등 반영한다. 표준 라이브러리만 사용.
 
 사용: WARPGATE_ADMIN_PASSWORD=... sync-warpgate.py [--config targets.json] [--dry-run]
-삭제는 하지 않는다. 대상↔역할, 사용자↔역할 연결은 설정에 명시된 역할/대상 범위에서만 맞춘다.
+대상·역할·사용자 자체는 삭제하지 않는다. 대상↔역할, 사용자↔역할 연결은 설정에 명시된 역할/대상 범위에서만 맞춘다.
 """
 import argparse, json, os, ssl, sys, urllib.error, urllib.request
 
@@ -17,7 +17,7 @@ class Client:
         if insecure:
             self.ctx.check_hostname = False
             self.ctx.verify_mode = ssl.CERT_NONE
-        self.cookie = ""
+        self.cookies = {}
 
     def call(self, method, path, body=None, ok=(200, 201, 204)):
         req = urllib.request.Request(
@@ -25,12 +25,12 @@ class Client:
             data=None if body is None else json.dumps(body).encode(),
             headers={"Content-Type": "application/json",
                      **({"Host": self.host} if self.host else {}),
-                     **({"Cookie": self.cookie} if self.cookie else {})})
+                     **({"Cookie": "; ".join(f"{k}={v}" for k, v in self.cookies.items())} if self.cookies else {})})
         try:
             r = urllib.request.urlopen(req, timeout=30, context=self.ctx)
-            cookies = [c.split(";")[0] for c in r.headers.get_all("Set-Cookie") or []]
-            if cookies:
-                self.cookie = "; ".join(cookies)
+            for c in r.headers.get_all("Set-Cookie") or []:
+                k, _, v = c.split(";")[0].partition("=")
+                self.cookies[k] = v
             raw = r.read().decode()
             status = r.status
         except urllib.error.HTTPError as e:
@@ -73,7 +73,7 @@ def main():
     ap.add_argument("--dry-run", action="store_true")
     a = ap.parse_args()
     cfg = json.load(open(a.config))
-    url = os.environ.get("WARPGATE_URL", "https://127.0.0.1:8888")
+    url = os.environ.get("WARPGATE_URL", "https://127.0.0.1:18888")
     pw = os.environ.get("WARPGATE_ADMIN_PASSWORD") or sys.exit("WARPGATE_ADMIN_PASSWORD 필요")
     c = Client(url, os.environ.get("WARPGATE_INSECURE_TLS", "").lower() == "true",
                os.environ.get("WARPGATE_HOST_HEADER"))
