@@ -18,6 +18,15 @@
 
 Semaphore는 SQLite를 기본 저장소로 사용합니다. `/data/semaphore/data`가 컨테이너의 `/var/lib/semaphore`로 연결되고, 작업 캐시는 `/data/semaphore/work`에 저장됩니다. Ansible 추가 Python 패키지 목록은 `/data/semaphore/config/requirements.txt`에서 관리해 컨테이너의 `/etc/semaphore/requirements.txt`로 연결합니다. Cisco와 FortiGate 백업 파일은 컨테이너의 `/var/backups`에서 `${DATA_DIR}/network-backups`로 영속 저장합니다. 전체 Host Audit 플레이북의 메모리 사용량을 고려해 Semaphore 컨테이너는 4GiB로 제한합니다.
 
+### 고정 IP와 AppRole CIDR 바인딩
+
+- `backend` 네트워크(외부, `172.22.0.0/16`)에서 Semaphore는 고정 IP `172.22.10.4`, ingress 프록시(Caddy)는 `172.22.10.2`를 사용합니다. Caddy compose는 이 저장소에 없고 서버(`/home/ppzxc/services/caddy/compose.yml`)에서 관리합니다.
+- Semaphore 러너 AppRole의 CIDR은 `172.22.10.4/32`에 묶여 있습니다. 컨테이너를 재생성해도 이 IP를 유지해야 OpenBao 로그인이 됩니다.
+- `openbao/config/openbao.hcl`의 `x_forwarded_for_authorized_addrs`는 Caddy 고정 IP와 같아야 합니다. 허용된 프록시의 `X-Forwarded-For`만 신뢰하고, 그 밖의 주소가 보낸 헤더는 거부합니다. 헤더 없는 직접 접속(러너)은 컨테이너 IP로 판단합니다.
+- OpenBao를 재시작하면 Shamir unseal이 필요합니다.
+- Semaphore 러너는 순정 `semaphoreui/semaphore` 이미지이며, 시작할 때 `/etc/semaphore/requirements.txt`(서버 `/data/semaphore/config/requirements.txt`)를 venv에 pip 설치합니다. `jsonschema` 같은 패키지를 추가하려면 이 파일을 고치고 `docker restart`만 하면 됩니다. 재생성과 이미지 재빌드는 필요 없습니다.
+- ingress 프록시(Caddy)의 허용 목록(서버 `/home/ppzxc/services/caddy/runtime/whitelist`)에 Semaphore 고정 IP를 `remote_ip`로 추가해야 러너가 공인 URL로 Semaphore API를 읽을 수 있습니다. Caddy는 이 저장소 밖에서 관리합니다.
+
 Ansible SSH 자격증명은 Semaphore의 암호화된 키스토어에 보관합니다. 컨테이너에는 호스트 `~/.ssh`를 마운트하지 않습니다. 서버의 `authorized_keys`는 호스트 로그인 접근을 위한 파일이고, `known_hosts` 검사는 현재 비활성화되어 있어 이 마운트가 필요하지 않습니다.
 
 ```text

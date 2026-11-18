@@ -1,2 +1,4 @@
 # Required by community.hashi_vault lookup plugins used by network backup tasks.
 hvac==2.3.0
+# Required by scripts/openbao_check.py (Periodic Check schema validation).
+jsonschema

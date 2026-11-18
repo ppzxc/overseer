@@ -28,7 +28,9 @@ services:
       - ${DATA_DIR:-/data}/openbao/data:/openbao/data:ro
       - ${SEMAPHORE_CONFIG_DIR:-.}/requirements.txt:/etc/semaphore/requirements.txt:ro
     networks:
-      - backend
+      backend:
+        # AppRole CIDR 바인딩용 고정 IP. 컨테이너 재생성 시에도 유지해야 OpenBao 로그인이 된다.
+        ipv4_address: 172.22.10.4
     healthcheck:
       test: ["CMD-SHELL", "nc -z 127.0.0.1 3000 || exit 1"]
       interval: 10s
